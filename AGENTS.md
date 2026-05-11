@@ -83,3 +83,76 @@ Issues follow this label system:
 - `agent-blocked` — Waiting on a decision or upstream issue
 - `human-only` — Credentials, billing, or judgment — not for agents
 - `priority:p0` — MVP blocker
+
+## Definition of Done
+
+For an issue to be considered done:
+1. All acceptance criteria must be met.
+2. Verification artifacts (e.g., plan approval, terminal output) must be provided in the PR.
+3. Every UI-touching issue requires a browser recording Artifact.
+4. Unit tests must be written for every function/module/behavior added or changed, and pass via `pnpm test`.
+5. The associated GitHub issue must be closed and the `status:in-progress` label removed.
+
+## Hard Rules
+
+- **DO NOT TOUCH:** If an issue says DO NOT TOUCH a file, do not modify it, full stop.
+- **Browser Recording:** Every UI-touching issue requires a browser recording Artifact.
+- **Environment Variables:** All environment variables must be defined in `.env.example` files across packages, and loaded properly without committing secrets.
+
+## Architecture References
+
+- **Scoring Formula:** `packages/scoring` contains the single source of truth for point calculations.
+- **State Machines:** Draft and league state transitions must follow the shared state machines in `packages/shared`.
+
+## Autonomous Agent Workflow
+
+You are an autonomous coding agent working on Skyzlimitz/AniDraft. Find your own next task.
+
+### Step 1 — Pick the next task
+- Run: `gh issue list --repo Skyzlimitz/AniDraft --state open --label agent-ready --json number,title,labels,body --limit 100`
+- Pick the lowest-numbered issue whose Dependencies are all closed. Tie-break: prefer `area:infra` first, then `area:auth`, then everything else.
+- Tell the user the issue number and one-sentence reason. WAIT for confirmation.
+
+### Step 2 — Claim the issue (after confirmation)
+Do this BEFORE the plan stage so other agents/humans don't double-pick it.
+
+```bash
+# Ensure the in-progress label exists (idempotent, only creates on first run)
+gh label list --repo Skyzlimitz/AniDraft --json name --jq '.[].name' | grep -qx "status:in-progress" \
+  || gh label create "status:in-progress" --repo Skyzlimitz/AniDraft --color "fbca04" \
+       --description "An agent is actively working on this issue"
+
+# Claim it: add in-progress, drop agent-ready so no one else grabs it
+gh issue edit <N> --repo Skyzlimitz/AniDraft \
+  --add-label status:in-progress --remove-label agent-ready
+
+# Announce pickup
+gh issue comment <N> --repo Skyzlimitz/AniDraft \
+  --body "Picked up by autonomous agent. Producing PLAN.md..."
+```
+
+### Step 3 — Per-issue workflow
+Follow the standard per-issue workflow:
+  load context → verify deps → produce PLAN.md (including the unit-test plan)
+  → STOP for plan approval → execute (with unit tests) → open PR with `Closes #<N>`.
+
+Specifically:
+- **Write unit tests** for every function/module/behavior you add or change. Tests must pass via `pnpm test`. If the issue genuinely has no testable logic, justify it in PLAN.md and PR.
+- PR description includes `Closes #<N>`, the approved plan, ticked acceptance criteria with evidence, a Tests section, and verification artifacts.
+- Do NOT merge your own PR.
+
+### Step 4 — Close the loop (after PR merges)
+- Confirm PR merged: `gh pr view <PR#> --json state`
+- Confirm issue auto-closed via "Closes #<N>"; if not:
+  `gh issue close <N> --repo Skyzlimitz/AniDraft --comment "Resolved by #<PR>"`
+- Remove the in-progress label (works on closed issues too):
+  `gh issue edit <N> --repo Skyzlimitz/AniDraft --remove-label status:in-progress`
+
+### Additional Hard rules
+- Never pick an `agent-blocked` or `human-only` issue.
+- Never start coding before the user approves both the picked issue AND the plan.
+- No PR without tests for new logic (explicit justification required if none).
+- Every completed task must end with the GitHub issue CLOSED and `status:in-progress` removed.
+- One issue at a time. Do not batch.
+- **If you abandon a task** (blocked, errored, giving up): release the lock.
+  `gh issue edit <N> --add-label agent-ready --remove-label status:in-progress` and comment why. Never leave a stale `status:in-progress` label on an issue you're no longer working.
