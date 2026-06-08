@@ -156,6 +156,28 @@ importers:
         specifier: ^3.0.0
         version: 3.2.4(@types/node@20.19.41)(tsx@4.21.0)
 
+  tests/integration:
+    dependencies:
+      '@anidraft/anilist':
+        specifier: workspace:*
+        version: link:../../packages/anilist
+      '@anidraft/scoring':
+        specifier: workspace:*
+        version: link:../../packages/scoring
+      '@anidraft/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+    devDependencies:
+      typescript:
+        specifier: ^5.8.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@20.19.41)(tsx@4.21.0)
+
 packages:
 
   '@babel/code-frame@7.29.0':
