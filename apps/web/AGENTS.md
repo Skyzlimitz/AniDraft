@@ -27,3 +27,12 @@ and is the version shadcn/ui targets going forward.
   `(auth)`.
 - Path alias `@/*` maps to the app root, so `@/components/ui/button`,
   `@/lib/utils`, etc.
+
+## Visual verification
+
+UI-touching changes need a screenshot artifact (Definition of Done). The
+`Web Screenshot` GitHub Actions workflow (`.github/workflows/web-screenshot.yml`)
+builds the app, runs the Playwright spec in `e2e/`, and uploads
+`apps/web/screenshots/landing.png` as the `landing-screenshot` artifact on every
+PR that touches `apps/web`. Run it locally with `pnpm --filter web e2e` (first
+time: `pnpm --filter web exec playwright install chromium`).
