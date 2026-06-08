@@ -91,7 +91,8 @@ For an issue to be considered done:
 2. Verification artifacts (e.g., plan approval, terminal output) must be provided in the PR.
 3. Every UI-touching issue requires a browser recording Artifact.
 4. Unit tests must be written for every function/module/behavior added or changed, and pass via `pnpm test`.
-5. The associated GitHub issue must be closed and the `status:in-progress` label removed.
+5. Integration tests (`tests/integration`) must be added or updated for any change that crosses a package/app boundary. See `tests/integration/README.md` for the rules and the pre-PR checklist.
+6. The associated GitHub issue must be closed and the `status:in-progress` label removed.
 
 ## Hard Rules
 
@@ -138,6 +139,7 @@ Follow the standard per-issue workflow:
 
 Specifically:
 - **Write unit tests** for every function/module/behavior you add or change. Tests must pass via `pnpm test`. If the issue genuinely has no testable logic, justify it in PLAN.md and PR.
+- **Update integration tests** in `tests/integration` whenever your change crosses a package/app boundary (e.g. a server action wiring `shared` + `db` + `scoring`, or a change to a shared schema/contract). Follow the checklist in `tests/integration/README.md`.
 - PR description includes `Closes #<N>`, the approved plan, ticked acceptance criteria with evidence, a Tests section, and verification artifacts.
 - Do NOT merge your own PR.
 
