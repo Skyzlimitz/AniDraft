@@ -2,13 +2,13 @@ name: Web Screenshot
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, master]
     paths:
       - "apps/web/**"
       - "packages/**"
       - ".github/workflows/web-screenshot.yml"
   push:
-    branches: [main]
+    branches: [main, master]
     paths:
       - "apps/web/**"
       - "packages/**"
