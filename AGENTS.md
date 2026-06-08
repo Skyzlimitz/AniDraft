@@ -100,6 +100,14 @@ For an issue to be considered done:
 - **Browser Recording:** Every UI-touching issue requires a browser recording Artifact.
 - **Environment Variables:** All environment variables must be defined in `.env.example` files across packages, and loaded properly without committing secrets.
 
+## Reviewing PRs (Reviewer Role)
+
+Implementing a change and reviewing it are **separate roles**. When you are
+asked to review, look over, or comment on a PR, follow the reviewer workflow in
+[`docs/reviewer-role.md`](docs/reviewer-role.md): verify the change against the
+real source and the Definition of Done, comment specifically and frugally, and
+remember that reviewers recommend — they do not merge their own work.
+
 ## Architecture References
 
 - **Scoring Formula:** `packages/scoring` contains the single source of truth for point calculations.
@@ -152,6 +160,8 @@ Specifically:
 
 ### Additional Hard rules
 - Never pick an `agent-blocked` or `human-only` issue.
+- Never review-and-merge your own PR. Reviewing a PR is a separate role — see
+  [`docs/reviewer-role.md`](docs/reviewer-role.md).
 - Never start coding before the user approves both the picked issue AND the plan.
 - No PR without tests for new logic (explicit justification required if none).
 - Every completed task must end with the GitHub issue CLOSED and `status:in-progress` removed.
