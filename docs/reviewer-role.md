@@ -29,6 +29,11 @@ Review in roughly this order — cheapest signal first, judgment last.
    pnpm lint && pnpm typecheck && pnpm test
    ```
 
+   `pnpm test` runs the cross-package **integration tests** in
+   `tests/integration` alongside the per-package unit tests — confirm both
+   are green, not just the unit tests. If you only need the integration
+   suite: `pnpm --filter @anidraft/integration-tests test`.
+
 2. **Does it do what it claims?** Read the PR description, then read the diff
    against the actual source. Do not trust the description's claims about
    behavior — **verify assertions against the real code**. If a test asserts
@@ -48,15 +53,23 @@ Review in roughly this order — cheapest signal first, judgment last.
    unit tests for every function/module/behavior added or changed, and the
    linked issue referenced via `Closes #<N>`.
 
-5. **Tests are meaningful, not just present.** Do they test the actual
+5. **Integration tests.** Confirm `tests/integration` passes. If the change
+   crosses a package/app boundary (e.g. a server action wiring `shared` + `db`
+   + `scoring`, a shared schema/contract change, or a change to the `scoring`
+   or `anilist` response shape), the author **must** have added or updated an
+   integration test for that seam — per the hard rule in
+   `tests/integration/README.md`. A boundary-crossing PR with no
+   integration-test change is a blocker; flag it.
+
+6. **Tests are meaningful, not just present.** Do they test the actual
    behavior, or are they tautological / asserting on stubs in a way that will
    silently rot? Flag assertions that bake in assumptions the description
    explicitly says it is *not* making.
 
-6. **Secrets & config.** No committed secrets; new env vars added to the
+7. **Secrets & config.** No committed secrets; new env vars added to the
    relevant `.env.example`.
 
-7. **Managed blocks.** Edits inside `<!-- BEGIN:* -->` / `<!-- END:* -->`
+8. **Managed blocks.** Edits inside `<!-- BEGIN:* -->` / `<!-- END:* -->`
    marker blocks (e.g. `git-agent-rules`, `nextjs-agent-rules` in `AGENTS.md`)
    are injected/synced from templates and can be overwritten. Flag any change
    inside one and ask whether it belongs in an un-managed section instead.
