@@ -13,7 +13,7 @@ When working with Git and Pull Requests, DO NOT overcomplicate the process or tr
 2. **Branch**: Run `git checkout -b <branch_name>` to create a pristine branch.
 3. **Commit**: Stage files with `git add` and commit using conventional commit messages (`feat:`, `fix:`, `chore:`).
 4. **Push**: Push to remote with `git push -u origin <branch_name>`.
-5. **PR Creation**: You do NOT need to create the Pull Request via API or CLI. Simply output the PR creation URL (e.g., `https://github.com/Skyzlimitz/AniDraft/pull/new/<branch_name>`) in the chat and tell the user to click it.
+5. **PR Creation**: Agents MAY open the Pull Request directly (via the GitHub tools/API) once the work is pushed. Use a conventional-commit-style title and a body that includes a summary, a Tests section, and `Closes #<N>` when there is a tracking issue. Do NOT merge your own PR. (If PR creation is unavailable, fall back to outputting the compare URL `https://github.com/Skyzlimitz/AniDraft/pull/new/<branch_name>` for the user to click.)
 <!-- END:git-agent-rules -->
 
 # AniDraft — Agent Conventions
