@@ -28,8 +28,10 @@ const scheduler = startScheduler({
 
 function shutdown(signal: NodeJS.Signals): void {
   logger.info("cron worker shutting down", { signal });
+  // No explicit process.exit(): stop() clears the only pending timer, so the
+  // event loop drains and Node exits 0 on its own. This lets the final log line
+  // flush to a piped stdout rather than being truncated by an early exit.
   scheduler.stop();
-  process.exit(0);
 }
 
 process.on("SIGTERM", () => shutdown("SIGTERM"));

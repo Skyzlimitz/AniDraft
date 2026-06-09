@@ -44,6 +44,13 @@ export interface SchedulerOptions {
  * delay until the next Monday 00:00 UTC, logs `cron worker idle`, and sets a
  * single timer. A week (~6.05e8 ms) is well within the setTimeout 32-bit limit,
  * so no chunking is needed.
+ *
+ * Limitation — missed runs are not caught up: the timer only fires while the
+ * process is alive. If the machine is down across a Monday 00:00 UTC (restart,
+ * redeploy, crash), that week is skipped and we simply schedule the next one.
+ * Harmless for this idle scaffold, but once #60 writes real snapshots it should
+ * reconcile missed weeks on boot (e.g. a "last successful run" check) before
+ * relying on this scheduler for durable weekly snapshots.
  */
 export function startScheduler(options: SchedulerOptions): Scheduler {
   const now = options.now ?? (() => new Date());
