@@ -4,5 +4,22 @@ primary_region = "iad"
 [build]
   dockerfile = "Dockerfile"
 
+# The weekly snapshot runs from a long-lived process that wakes itself every
+# Monday 00:00 UTC via an in-process scheduler (see src/scheduler.ts). Fly's
+# native scheduled machines only support coarse hourly/daily/weekly buckets and
+# the schedule can't be expressed in fly.toml, so we run a single always-on
+# machine and let the worker own the precise timing.
+#
+# Deploy as exactly one machine (no inbound traffic, so no [http_service]):
+#   fly deploy && fly scale count 1 --app anidraft-cron
+#
+# Turso credentials are provided as secrets, not committed env:
+#   fly secrets set DATABASE_URL=... DATABASE_AUTH_TOKEN=... --app anidraft-cron
+
 [env]
   NODE_ENV = "production"
+  LOG_LEVEL = "info"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
