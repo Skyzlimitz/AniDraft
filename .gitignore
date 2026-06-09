@@ -33,6 +33,10 @@ npm-debug.log*
 
 # Testing
 coverage/
+test-results/
+playwright-report/
+playwright/.cache/
+screenshots/
 
 # Misc
 *.tsbuildinfo
