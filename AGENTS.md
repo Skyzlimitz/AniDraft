@@ -42,7 +42,7 @@ packages/
 | Language | TypeScript (strict mode) |
 | Database | Drizzle ORM + Turso (libSQL) |
 | Auth | Auth.js (NextAuth v5) |
-| Styling | CSS Modules |
+| Styling | Tailwind CSS v4 + shadcn/ui |
 | Font | Geist (Sans + Mono) |
 | Testing | Vitest |
 | Linting | ESLint + Prettier |
@@ -56,7 +56,7 @@ packages/
 - **Use named exports** — avoid default exports (except Next.js pages/layouts)
 - **Use server actions** for mutations in `apps/web`
 - **Zod validation** on all user inputs (schemas live in `packages/shared`)
-- **CSS Modules** for styling — no inline styles, no Tailwind
+- **Tailwind CSS v4** for styling in `apps/web` (CSS-first config via `@theme` in `app/globals.css`); UI primitives come from **shadcn/ui** (`components/ui`). Use CSS Modules only for the rare cases Tailwind utilities can't express. No inline styles.
 
 ## Workspace Commands
 

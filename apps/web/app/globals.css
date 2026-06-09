@@ -1,0 +1,85 @@
+@import "tailwindcss";
+
+/* Enables the `dark:` variant when a `.dark` class is on an ancestor. */
+@custom-variant dark (&:is(.dark *));
+
+/*
+ * AniDraft design tokens (shadcn/ui-compatible).
+ * The app ships dark-by-default, so the AniDraft palette lives on `:root`.
+ * Values mirror the brand palette: deep navy surfaces + cyan accent.
+ */
+:root {
+  --radius: 0.5rem;
+
+  --background: #0a1220;
+  --foreground: #f4f8fb;
+
+  --card: #121f36;
+  --card-foreground: #f4f8fb;
+
+  --popover: #1b2b49;
+  --popover-foreground: #f4f8fb;
+
+  --primary: #6fe5f4;
+  --primary-foreground: #05090f;
+
+  --secondary: #1b2b49;
+  --secondary-foreground: #f4f8fb;
+
+  --muted: #121f36;
+  --muted-foreground: #b7c4d6;
+
+  --accent: #1b2b49;
+  --accent-foreground: #6fe5f4;
+
+  --destructive: #e63946;
+  --destructive-foreground: #ffffff;
+
+  --border: #1f3a6c;
+  --input: #1f3a6c;
+  --ring: #6fe5f4;
+}
+
+/* Map the design tokens onto Tailwind's theme so utilities like
+   `bg-background`, `text-foreground`, and `bg-primary` are generated. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+
+  /* Geist font CSS variables are injected on <body> by next/font in layout.tsx. */
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-sans);
+  }
+}
