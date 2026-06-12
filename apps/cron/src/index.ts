@@ -9,10 +9,16 @@
  * `@anidraft/scoring`, write `weekly_snapshots` via `@anidraft/db` — is
  * implemented under the Scoring epic (#60) and is intentionally a no-op here.
  */
+import { cronEnvSchema, parseEnv } from "@anidraft/shared/env";
 import { createLogger } from "./logger.js";
 import { startScheduler } from "./scheduler.js";
 
-const logger = createLogger("cron");
+// Fail fast on a missing/malformed environment before doing any work. The
+// validated values (DATABASE_URL, DATABASE_AUTH_TOKEN) feed createDb() once
+// the snapshot job lands (#60).
+const env = parseEnv(cronEnvSchema);
+
+const logger = createLogger("cron", { minLevel: env.LOG_LEVEL });
 
 logger.info("cron worker starting", {
   pid: process.pid,

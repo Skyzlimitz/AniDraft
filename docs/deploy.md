@@ -102,9 +102,11 @@ effect on running apps.
 | `DATABASE_URL` | Vercel env var | web | **Production** scope → main Turso DB; **Preview** scope → staging Turso branch |
 | `DATABASE_AUTH_TOKEN` | Vercel env var | web | Scoped per environment like `DATABASE_URL` |
 | Auth.js secrets (`AUTH_SECRET`, provider IDs/secrets) | Vercel env var | web | Added by the auth issues (#20–#23); same per-environment scoping |
+| `NEXT_PUBLIC_REALTIME_URL` | Vercel env var | web | Not a secret, but **required for production builds** — `webEnvSchema` fails `next build` without it. Public URL of the Fly realtime app |
 
 Never commit secret values. Document any new variable in the relevant
-`.env.example` and add a row here.
+`.env.example`, the schema in `packages/shared/src/env.ts`, and
+[`docs/env-vars.md`](env-vars.md), then add a row here.
 
 ## Environment promotion
 

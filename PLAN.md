@@ -1,106 +1,112 @@
-# PLAN — Issue #8: Deploy pipelines: Vercel (web) + Fly.io (realtime, cron)
+# PLAN — Issue #9: Environment variable strategy + `.env.example` files
 
-## Decision 1: Vercel project config
+## Decision 1: Naming convention
 
-**Vercel deploys via its native Git integration, not GitHub Actions.** Connecting
-the repo to a Vercel project gives preview deploys with unique URLs on every PR
-and production deploys on push to the default branch for free — re-implementing
-that in Actions would require managing `VERCEL_TOKEN`/org/project IDs and lose
-the dashboard integration.
+**UPPER_SNAKE_CASE, no per-app prefixes.**
 
-Config split (committed where possible, UI only where unavoidable):
+Each app deploys to its own platform (web → Vercel, realtime/cron → Fly), so
+every app already has an isolated env namespace — a `CRON_`/`WEB_` prefix would
+add noise without preventing any real collision. Shared resources keep
+**identical names across apps** (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`) so docs,
+Fly secrets commands, and grep all line up.
 
-| Setting | Where | Value |
-|---------|-------|-------|
-| Root Directory | Vercel UI (not a valid `vercel.json` field) | `apps/web` |
-| Framework preset | `apps/web/vercel.json` | `nextjs` |
-| Install command | `apps/web/vercel.json` | `pnpm install --frozen-lockfile` (runs at workspace root — Vercel auto-detects pnpm workspaces) |
-| Build command | `apps/web/vercel.json` | `cd ../.. && pnpm turbo run build --filter=web` |
-| Ignore command | `apps/web/vercel.json` | `npx turbo-ignore web` — skips deploys when neither `web` nor its workspace deps changed |
+The only prefix is the platform-mandated one: **`NEXT_PUBLIC_`** for web vars
+that are inlined into the client bundle. Anything without that prefix is
+server-only by definition.
 
-Everything expressible in `vercel.json` is committed so the config is reviewable;
-`docs/deploy.md` documents the single UI-only setting (Root Directory) plus the
-project-connection steps.
+## Decision 2: Where typed validation lives
 
-## Decision 2: Fly.io deploy action
+**`packages/shared/src/env.ts`** (new), exporting:
 
-**Official `superfly/flyctl-actions/setup-flyctl@master`** (the action Fly
-documents and maintains; `@master` is its documented stable tag), then plain
-`flyctl deploy --remote-only`. `--remote-only` builds on Fly's builders, so the
-workflow needs no Docker setup and stays fast.
+- `parseEnv(schema, env = process.env)` — generic helper that runs a Zod
+  schema and, on failure, throws one aggregated `Error` listing every
+  missing/malformed variable by name with its issue, e.g.:
 
-Both Dockerfiles `COPY` workspace-root files (`pnpm-workspace.yaml`,
-`pnpm-lock.yaml`, `packages/...`), so the **build context must be the repo
-root**: run `flyctl deploy . --config apps/<app>/fly.toml --dockerfile
-apps/<app>/Dockerfile --remote-only` from the checkout root.
+  ```
+  ❌ Invalid environment variables:
+    - DATABASE_URL: Required (set it in .env / Fly secrets — see docs/env-vars.md)
+    - PORT: Expected number, received "abc"
+  ```
 
-One workflow per app (`deploy-realtime.yml`, `deploy-cron.yml`) as the issue
-specifies, each with:
+- Per-app Zod schemas + inferred types: `webEnvSchema`, `realtimeEnvSchema`,
+  `cronEnvSchema`, built from shared field schemas (`databaseUrl`, `port`,
+  `logLevel`).
 
-- **Trigger:** `push` to `[main, master]` (repo default is `master`; matching
-  `ci.yml` keeps a future rename painless) — PRs never deploy to Fly, so a
-  failed/feature branch can't break prod. Plus `workflow_dispatch` for manual
-  re-deploys.
-- **Paths filter:** the app dir, the packages its Dockerfile copies,
-  `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `.npmrc`, and
-  the workflow file itself. (realtime → `packages/db`, `packages/shared`;
-  cron's Dockerfile copies all of `packages/`.)
-- **Concurrency:** `group: deploy-<app>`, `cancel-in-progress: false` — deploys
-  queue rather than being killed mid-rollout.
-- **Post-deploy for cron only:** `flyctl scale count 1` per the instruction in
-  `apps/cron/fly.toml` (exactly one always-on machine).
+Apps call `parseEnv(<schema>)` **once at boot** (entry point) and pass the
+typed result down — no scattered `process.env` reads in app code.
 
-## Decision 3: Secret naming convention
+### Required vs defaulted (the prod/dev split)
 
-| Secret | Lives in | Used by |
-|--------|----------|---------|
-| `FLY_API_TOKEN` | GitHub Actions repo secret | Both deploy workflows (one org-scoped deploy token covers both apps; per-app tokens documented as the hardening upgrade) |
-| `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | Fly app secrets (`fly secrets set`) per app | realtime + cron at runtime |
-| `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `AUTH_*` etc. | Vercel env vars, scoped per environment | web at build/runtime |
+`DATABASE_URL` must fail boot when missing in production (the issue's demo),
+but cron/realtime local dev currently boots with zero setup. Convention:
 
-No secrets in the repo; `docs/deploy.md` lists every required secret, where it
-lives, and the command/UI path to set it (acceptance criterion).
+- **In production (`NODE_ENV=production`): `DATABASE_URL` is required** — boot
+  throws the clear error above.
+- **In dev: defaults to `file:./dev.db`** so `pnpm dev` keeps working with no
+  `.env` file.
+- Malformed values (`PORT=abc`, `LOG_LEVEL=verbose`) fail boot in **every**
+  environment.
+- `DATABASE_AUTH_TOKEN` stays optional (not needed for `file:` URLs).
 
-## Decision 4: Environment promotion strategy
+### Per-app schema contents (everything each app reads today)
 
-- **Vercel Preview** env vars point at the **staging Turso branch DB**; **Vercel
-  Production** env vars point at the **main Turso DB**. Vercel's per-environment
-  scoping gives this for free; documented in `docs/deploy.md`.
-- **Fly = production only**, deployed exclusively from the default branch.
-  Realtime/cron have no preview tier in MVP (PR validation for them is CI:
-  lint/typecheck/test); noted as a future option in `docs/deploy.md`.
+| App | Variable | Rule |
+|-----|----------|------|
+| realtime | `PORT` | coerced int 1–65535, default `4000` |
+| realtime | `DATABASE_URL` | required in prod, dev default `file:./dev.db` |
+| realtime | `DATABASE_AUTH_TOKEN` | optional |
+| cron | `DATABASE_URL` / `DATABASE_AUTH_TOKEN` | same as realtime |
+| cron | `LOG_LEVEL` | enum `debug\|info\|warn\|error`, default `info` |
+| web (server) | `VERCEL_URL` | optional (set by Vercel) |
+| web (client) | `NEXT_PUBLIC_REALTIME_URL` | URL, required in prod, dev default `ws://localhost:4000` |
+
+Web wiring: new `apps/web/lib/env.ts` validates at module load and is imported
+from the root layout, so a bad env fails the build/boot. `NEXT_PUBLIC_*` values
+are referenced literally (`process.env.NEXT_PUBLIC_REALTIME_URL`) because Next
+inlines them at build time. (Will re-check `node_modules/next/dist/docs` env
+guide before writing this file, per repo rules.)
+
+## Decision 3: Where secrets live per environment
+
+Documented per-variable in the new `docs/env-vars.md`:
+
+| Environment | web | realtime / cron |
+|-------------|-----|-----------------|
+| Local | `apps/web/.env.local` (git-ignored) | `apps/<app>/.env` (git-ignored) |
+| Production | Vercel project env vars (dashboard/CLI) | `fly secrets set ... --app <app>` |
+| CI | not needed (no secrets in tests) | not needed (no secrets in tests) |
+
+Actual secret **values** are out of scope (human-only issues).
 
 ## Files
 
-- Create `.github/workflows/deploy-realtime.yml` — Fly deploy on push to default branch.
-- Create `.github/workflows/deploy-cron.yml` — same for cron + `scale count 1`.
-- Create `apps/web/vercel.json` — framework/install/build/ignore commands (the "document choice" answer: config-as-code over UI wherever Vercel allows).
-- Create `docs/deploy.md` — architecture, one-time setup (Vercel project, Fly apps, Turso branches), full secrets table, promotion strategy, manual deploy/rollback commands.
+- **Create** `packages/shared/src/env.ts` + `src/env.test.ts`; re-export from `src/index.ts`.
+- **Create** `apps/web/lib/env.ts`; import it in `app/layout.tsx`.
+- **Modify** `apps/realtime/src/index.ts` — `parseEnv(realtimeEnvSchema)` at boot; pass `PORT` through.
+- **Modify** `apps/cron/src/index.ts` — parse at boot; pass `LOG_LEVEL` into `createLogger` (logger keeps its own fallback for tests); `src/logger.ts` stops reading `process.env` directly.
+- **Modify** all three `.env.example` files — every variable above, each with a comment (purpose, default, where the prod value lives).
+- **Create** `docs/env-vars.md` — full variable table + per-environment sourcing + how to add a new variable.
 
-## Unit-test justification (no testable logic)
+## Test plan
 
-The change is entirely declarative config (two GitHub Actions YAML files, one
-`vercel.json`, one Markdown doc) — no functions, modules, or runtime behavior
-added, so there is nothing for Vitest to exercise. Verification instead:
-`actionlint`/YAML parse of the workflows, JSON validity of `vercel.json`, and
-`pnpm lint`/`typecheck`/`test` staying green. No integration tests: no
-package/app boundary is crossed at runtime.
+**Unit (`packages/shared/src/env.test.ts`):**
+- happy path parses + applies defaults
+- missing `DATABASE_URL` with `NODE_ENV=production` → throws, message names the variable
+- malformed `PORT` / `LOG_LEVEL` → throws with clear issue text
+- multiple failures aggregate into one message
+- `DATABASE_AUTH_TOKEN` optional; empty string treated as unset (matches `VAR=` lines in `.env.example`)
 
-## Out of scope (per issue)
+**Integration (`tests/integration/src/env-validation.test.ts`)** — shared↔apps
+boundary: parse each app's actual `.env.example` file against its schema, so
+examples can never drift from the schemas (acceptance criterion #1 becomes
+machine-checked). Plus a boot-failure case per app schema in prod mode.
 
-Monitoring/alerting. Also not touching `ci.yml`.
+**Demo artifact (for PR):** terminal capture of
+`NODE_ENV=production pnpm --filter realtime start` with `DATABASE_URL` unset →
+clear boot failure naming the variable; same command with it set → boots.
 
-## Human prerequisites (cannot be done by the agent)
+## Out of scope
 
-Vercel project created + repo connected (Root Directory `apps/web`), Fly apps
-`anidraft-realtime`/`anidraft-cron` created, `FLY_API_TOKEN` repo secret set,
-Turso staging branch created. The workflows are inert until then — they only
-run on push to the default branch, and a missing token fails the Action run
-without touching prod. All steps spelled out in `docs/deploy.md`.
-
-## Verification
-
-- `actionlint` (or YAML parse) passes on both workflows; `vercel.json` parses.
-- `pnpm lint && pnpm typecheck && pnpm test` pass.
-- Acceptance criteria #1/#2 (live deploy screenshots) require the human-owned
-  Vercel/Fly accounts; the PR will note they're verifiable only post-setup.
+- No real secret values anywhere.
+- No new env vars beyond what apps/`.env.example`s reference today (auth vars
+  land with the Auth.js issue and will extend `webEnvSchema` then).

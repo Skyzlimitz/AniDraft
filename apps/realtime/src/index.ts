@@ -1,11 +1,13 @@
+import { parseEnv, realtimeEnvSchema } from "@anidraft/shared/env";
 import { createServer } from "./server.js";
 
-const PORT = parseInt(process.env.PORT ?? "4000", 10);
+// Fail fast on a missing/malformed environment before binding the port.
+const env = parseEnv(realtimeEnvSchema);
 
 const { httpServer } = createServer();
 
-httpServer.listen(PORT, () => {
-  console.log(`🚀 Realtime server running on port ${PORT}`);
-  console.log(`   Health check: http://localhost:${PORT}/health`);
-  console.log(`   WebSocket:    ws://localhost:${PORT}`);
+httpServer.listen(env.PORT, () => {
+  console.log(`🚀 Realtime server running on port ${env.PORT}`);
+  console.log(`   Health check: http://localhost:${env.PORT}/health`);
+  console.log(`   WebSocket:    ws://localhost:${env.PORT}`);
 });
