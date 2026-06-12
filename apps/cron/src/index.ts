@@ -1,31 +1,38 @@
 /**
  * Cron worker entry point.
  *
- * This worker runs as a Fly.io scheduled machine.
- * It executes the weekly snapshot job:
+ * Runs as a single always-on Fly machine. An in-process scheduler
+ * (see ./scheduler.ts) fires the weekly snapshot job every Monday 00:00 UTC;
+ * between runs the worker logs `cron worker idle` and waits.
  *
- * 1. Fetch current anime stats from AniList API
- * 2. Calculate weekly scores using packages/scoring
- * 3. Save snapshots to the database
- * 4. Update leaderboard rankings
- *
- * Implementation: Issue #60 (Weekly snapshot cron job in apps/cron)
+ * The snapshot job itself — fetch AniList stats, compute scores via
+ * `@anidraft/scoring`, write `weekly_snapshots` via `@anidraft/db` — is
+ * implemented under the Scoring epic (#60) and is intentionally a no-op here.
  */
+import { createLogger } from "./logger.js";
+import { startScheduler } from "./scheduler.js";
 
-async function main() {
-  console.log("🕐 AniDraft cron worker starting...");
-  console.log(`   Timestamp: ${new Date().toISOString()}`);
+const logger = createLogger("cron");
 
-  // TODO: Implement weekly snapshot job (Issue #60)
-  // 1. const anime = await fetchSeasonAnime(season, year);
-  // 2. const scores = anime.map(a => calculateWeeklyScore(a));
-  // 3. await db.insert(weeklySnapshots).values(scores);
+logger.info("cron worker starting", {
+  pid: process.pid,
+  node: process.version,
+});
 
-  console.log("✅ Cron job completed (stub — no-op)");
-  process.exit(0);
+const scheduler = startScheduler({
+  logger,
+  job: () => {
+    logger.warn("weekly snapshot job not yet implemented", { issue: 60 });
+  },
+});
+
+function shutdown(signal: NodeJS.Signals): void {
+  logger.info("cron worker shutting down", { signal });
+  // No explicit process.exit(): stop() clears the only pending timer, so the
+  // event loop drains and Node exits 0 on its own. This lets the final log line
+  // flush to a piped stdout rather than being truncated by an early exit.
+  scheduler.stop();
 }
 
-main().catch((error) => {
-  console.error("❌ Cron job failed:", error);
-  process.exit(1);
-});
+process.on("SIGTERM", () => shutdown("SIGTERM"));
+process.on("SIGINT", () => shutdown("SIGINT"));

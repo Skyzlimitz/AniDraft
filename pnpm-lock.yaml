@@ -42,6 +42,9 @@ importers:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.6(@types/node@20.19.42)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)
 
   apps/realtime:
     dependencies:

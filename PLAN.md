@@ -1,86 +1,53 @@
-# PLAN — Issue #6: Shared packages scaffold (db, scoring, anilist, shared)
+# PLAN — Issue #5: `apps/cron` weekly snapshot worker scaffold (Fly.io)
 
-## Current state (discovered)
+## Decision: scheduling mechanism
 
-The monorepo bootstrap commit (`59faa5a`) already created shells for all four
-packages, and later work (integration tests in `tests/integration`) already
-imports from them. So most of this issue's mechanical scaffolding exists:
+**Recommendation: in-process scheduler on an always-on Fly machine.**
 
-```
-packages/db      → src/index.ts, src/schema/index.ts, tsconfig.json, package.json (exports: ".", "./schema")
-packages/scoring → src/index.ts, tsconfig.json, package.json (exports: ".")
-packages/anilist → src/index.ts, tsconfig.json, package.json (exports: ".")
-packages/shared  → src/index.ts (+ types/schemas/utils), tsconfig.json, package.json (exports: ".", "./schemas", "./types", "./utils")
-```
+| Option | Verdict |
+|--------|---------|
+| **In-process scheduler (chosen)** | Precise Monday 00:00 UTC timing, fully configured in `fly.toml`, naturally logs `cron worker idle` while waiting, dev/prod parity, pure timing fn is unit-testable. |
+| Fly native scheduled machine | Rejected: Fly's `schedule` is **not** a valid `fly.toml` field (only the `flyctl machine run --schedule` flag), and the named buckets are coarse — the precise time can't be declared in config. |
+| `node-cron` dependency | Rejected: adds a runtime dep + lockfile churn; the testable value lives in our own "next Monday" math, not in node-cron. |
 
-What is **missing** to satisfy the acceptance criteria:
+Why Fly (not Render/Vercel): the repo standardizes `apps/cron` and `apps/realtime`
+on Fly (AGENTS.md). Vercel is serverless and can't host a persistent process;
+Render could but would split the backend across platforms. An always-on Fly
+machine mirrors `apps/realtime` and costs pennies/month.
 
-- `apps/web` does not yet import a placeholder type from `@anidraft/shared`
-  (acceptance criteria #1 and #3).
-- `apps/web/next.config.ts` has no `transpilePackages`, so when an app actually
-  imports one of these source-TS packages, `next build` would fail to parse it.
+## Logging strategy
 
-## Plan requirement answers (design decisions)
+Minimal dependency-free **structured JSON** logger → one object per line on
+stdout (`{level,time,name,msg,...fields}`). Fly's log shipper aggregates stdout,
+so lines are queryable via `fly logs`. Errors go to stderr.
 
-### 1. `exports` map design
+## Turso connection
 
-Keep the existing **source-export** maps (point `main`/`types`/`exports` at the
-raw `./src/index.ts`). Subpath exports stay as already defined:
+The worker reads `DATABASE_URL` + `DATABASE_AUTH_TOKEN` from env (Fly **secrets**
+in prod) and will pass them to `createDb()` from `@anidraft/db` when the snapshot
+job lands (#60). At idle the worker opens no connection, so it boots without
+secrets — keeping `pnpm --filter cron dev` runnable locally.
 
-- `@anidraft/shared` → `.`, `./schemas`, `./types`, `./utils`
-- `@anidraft/db` → `.`, `./schema`
-- `@anidraft/scoring` → `.`
-- `@anidraft/anilist` → `.`
+## Files
 
-Rationale: a single source of truth, no stale `dist`, instant HMR, and the
-subpaths give consumers tree-shakeable, intention-revealing entry points.
+- `src/logger.ts` — structured JSON logger (injectable sink/clock for tests).
+- `src/scheduler.ts` — pure `msUntilNextMonday(now)` + `startScheduler()` that
+  arms a timer, logs `cron worker idle`, and re-arms after each fire.
+- `src/index.ts` — rewrite: init logger, start scheduler, graceful SIGTERM/SIGINT.
+- `src/jobs/.gitkeep` — placeholder for future job modules.
+- `src/scheduler.test.ts`, `src/logger.test.ts` — vitest unit tests.
+- `fly.toml` — always-on single machine; comment documents Monday 00:00 UTC + secrets.
+- `package.json` — fix `start` (`dist/index.js`), add `test`/`test:watch` + vitest.
+- `.env.example` — document secrets source + `LOG_LEVEL`.
 
-### 2. `tsup` vs. Next.js / Node transpilation
+## Out of scope (per issue)
 
-**Do NOT add `tsup`.** Use the Turborepo **"Just-in-Time / internal TypeScript
-packages"** strategy — packages ship raw `.ts` and each consumer transpiles:
+Snapshot job logic (#60) and DB dump job. No integration test: the idle scaffold
+wires no packages together at runtime.
 
-- **apps/web (Next.js):** add `transpilePackages` for the three workspace deps
-  so Next compiles their source. (This is the change this issue adds.)
-- **apps/realtime, apps/cron (Node):** run via `tsx` in dev; their own `tsc`
-  build resolves the package source for types. (Out of scope to wire runtime
-  consumption here — placeholders only.)
-- Each package keeps a `tsc` `build`/`typecheck` script so `pnpm -r build` and
-  `pnpm typecheck` validate the source and can emit declarations on demand.
+## Verification
 
-Avoiding `tsup` removes a build tool, a watch process, and a class of
-stale-artifact bugs while everything is still pre-1.0.
-
-### 3. Build-once vs. build-per-app strategy
-
-**Build-per-app.** Each app transpiles the shared source as part of its own
-build/dev (Next via `transpilePackages`, workers via `tsx`/`tsc`). There is no
-shared pre-built `dist` artifact that apps depend on at runtime. This keeps the
-graph simple and guarantees apps never consume a stale shared build. If a future
-deployment target needs pre-compiled output, `tsup` can be introduced per
-package without changing consumers' import paths.
-
-## Changes
-
-1. `apps/web/next.config.ts` — add
-   `transpilePackages: ["@anidraft/db", "@anidraft/shared", "@anidraft/anilist"]`.
-2. `apps/web/src/lib/scaffold.ts` — placeholder module that imports a **value**
-   and a **type** from each shared dep (`@anidraft/shared`, `@anidraft/db`,
-   `@anidraft/anilist`) and exposes a typed constant. Proves the packages
-   resolve and expose their type definitions to `apps/web`. No app UI changes,
-   so no browser recording is required.
-
-## Tests
-
-- No new runtime logic is added (placeholders only — per the issue's "Out of
-  scope"), so there is no new function/module behavior to unit test. The
-  scaffold import is validated by `tsc --noEmit` (the web `typecheck` script,
-  also run by `next build`).
-- Existing `tests/integration` already exercises the cross-package contracts;
-  this change does not cross a new package boundary, so no integration-test
-  update is required.
-
-## Verification artifacts
-
-- `pnpm --filter "./packages/*" build` — clean `tsc` build of all four packages.
-- `pnpm --filter web typecheck` — `apps/web` typechecks with the new import.
+- `pnpm --filter cron dev` → logs `cron worker idle`.
+- `pnpm --filter cron typecheck` + `pnpm --filter cron test` pass.
+- `docker build -f apps/cron/Dockerfile .` succeeds (the step `fly deploy
+  --build-only` runs; `flyctl` is not installed in the sandbox).
