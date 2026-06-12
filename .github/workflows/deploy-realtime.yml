@@ -1,0 +1,46 @@
+name: Deploy Realtime (Fly.io)
+
+# Production deploys only: pushes to the default branch (plus manual dispatch).
+# PRs never reach this workflow, so a broken branch can't touch prod.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "apps/realtime/**"
+      - "packages/db/**"
+      - "packages/shared/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "tsconfig.base.json"
+      - ".npmrc"
+      - ".github/workflows/deploy-realtime.yml"
+  workflow_dispatch:
+
+# Queue deploys instead of cancelling one mid-rollout.
+concurrency:
+  group: deploy-realtime
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Fly.io
+    runs-on: ubuntu-latest
+    env:
+      FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
+
+      # The Dockerfile copies workspace-root files (pnpm-lock.yaml, packages/),
+      # so the build context must be the repo root, not apps/realtime.
+      - name: Deploy
+        run: >
+          flyctl deploy .
+          --config apps/realtime/fly.toml
+          --dockerfile apps/realtime/Dockerfile
+          --remote-only
