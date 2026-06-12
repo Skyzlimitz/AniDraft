@@ -1,53 +1,112 @@
-# PLAN — Issue #5: `apps/cron` weekly snapshot worker scaffold (Fly.io)
+# PLAN — Issue #9: Environment variable strategy + `.env.example` files
 
-## Decision: scheduling mechanism
+## Decision 1: Naming convention
 
-**Recommendation: in-process scheduler on an always-on Fly machine.**
+**UPPER_SNAKE_CASE, no per-app prefixes.**
 
-| Option | Verdict |
-|--------|---------|
-| **In-process scheduler (chosen)** | Precise Monday 00:00 UTC timing, fully configured in `fly.toml`, naturally logs `cron worker idle` while waiting, dev/prod parity, pure timing fn is unit-testable. |
-| Fly native scheduled machine | Rejected: Fly's `schedule` is **not** a valid `fly.toml` field (only the `flyctl machine run --schedule` flag), and the named buckets are coarse — the precise time can't be declared in config. |
-| `node-cron` dependency | Rejected: adds a runtime dep + lockfile churn; the testable value lives in our own "next Monday" math, not in node-cron. |
+Each app deploys to its own platform (web → Vercel, realtime/cron → Fly), so
+every app already has an isolated env namespace — a `CRON_`/`WEB_` prefix would
+add noise without preventing any real collision. Shared resources keep
+**identical names across apps** (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`) so docs,
+Fly secrets commands, and grep all line up.
 
-Why Fly (not Render/Vercel): the repo standardizes `apps/cron` and `apps/realtime`
-on Fly (AGENTS.md). Vercel is serverless and can't host a persistent process;
-Render could but would split the backend across platforms. An always-on Fly
-machine mirrors `apps/realtime` and costs pennies/month.
+The only prefix is the platform-mandated one: **`NEXT_PUBLIC_`** for web vars
+that are inlined into the client bundle. Anything without that prefix is
+server-only by definition.
 
-## Logging strategy
+## Decision 2: Where typed validation lives
 
-Minimal dependency-free **structured JSON** logger → one object per line on
-stdout (`{level,time,name,msg,...fields}`). Fly's log shipper aggregates stdout,
-so lines are queryable via `fly logs`. Errors go to stderr.
+**`packages/shared/src/env.ts`** (new), exporting:
 
-## Turso connection
+- `parseEnv(schema, env = process.env)` — generic helper that runs a Zod
+  schema and, on failure, throws one aggregated `Error` listing every
+  missing/malformed variable by name with its issue, e.g.:
 
-The worker reads `DATABASE_URL` + `DATABASE_AUTH_TOKEN` from env (Fly **secrets**
-in prod) and will pass them to `createDb()` from `@anidraft/db` when the snapshot
-job lands (#60). At idle the worker opens no connection, so it boots without
-secrets — keeping `pnpm --filter cron dev` runnable locally.
+  ```
+  ❌ Invalid environment variables:
+    - DATABASE_URL: Required (set it in .env / Fly secrets — see docs/env-vars.md)
+    - PORT: Expected number, received "abc"
+  ```
+
+- Per-app Zod schemas + inferred types: `webEnvSchema`, `realtimeEnvSchema`,
+  `cronEnvSchema`, built from shared field schemas (`databaseUrl`, `port`,
+  `logLevel`).
+
+Apps call `parseEnv(<schema>)` **once at boot** (entry point) and pass the
+typed result down — no scattered `process.env` reads in app code.
+
+### Required vs defaulted (the prod/dev split)
+
+`DATABASE_URL` must fail boot when missing in production (the issue's demo),
+but cron/realtime local dev currently boots with zero setup. Convention:
+
+- **In production (`NODE_ENV=production`): `DATABASE_URL` is required** — boot
+  throws the clear error above.
+- **In dev: defaults to `file:./dev.db`** so `pnpm dev` keeps working with no
+  `.env` file.
+- Malformed values (`PORT=abc`, `LOG_LEVEL=verbose`) fail boot in **every**
+  environment.
+- `DATABASE_AUTH_TOKEN` stays optional (not needed for `file:` URLs).
+
+### Per-app schema contents (everything each app reads today)
+
+| App | Variable | Rule |
+|-----|----------|------|
+| realtime | `PORT` | coerced int 1–65535, default `4000` |
+| realtime | `DATABASE_URL` | required in prod, dev default `file:./dev.db` |
+| realtime | `DATABASE_AUTH_TOKEN` | optional |
+| cron | `DATABASE_URL` / `DATABASE_AUTH_TOKEN` | same as realtime |
+| cron | `LOG_LEVEL` | enum `debug\|info\|warn\|error`, default `info` |
+| web (server) | `VERCEL_URL` | optional (set by Vercel) |
+| web (client) | `NEXT_PUBLIC_REALTIME_URL` | URL, required in prod, dev default `ws://localhost:4000` |
+
+Web wiring: new `apps/web/lib/env.ts` validates at module load and is imported
+from the root layout, so a bad env fails the build/boot. `NEXT_PUBLIC_*` values
+are referenced literally (`process.env.NEXT_PUBLIC_REALTIME_URL`) because Next
+inlines them at build time. (Will re-check `node_modules/next/dist/docs` env
+guide before writing this file, per repo rules.)
+
+## Decision 3: Where secrets live per environment
+
+Documented per-variable in the new `docs/env-vars.md`:
+
+| Environment | web | realtime / cron |
+|-------------|-----|-----------------|
+| Local | `apps/web/.env.local` (git-ignored) | `apps/<app>/.env` (git-ignored) |
+| Production | Vercel project env vars (dashboard/CLI) | `fly secrets set ... --app <app>` |
+| CI | not needed (no secrets in tests) | not needed (no secrets in tests) |
+
+Actual secret **values** are out of scope (human-only issues).
 
 ## Files
 
-- `src/logger.ts` — structured JSON logger (injectable sink/clock for tests).
-- `src/scheduler.ts` — pure `msUntilNextMonday(now)` + `startScheduler()` that
-  arms a timer, logs `cron worker idle`, and re-arms after each fire.
-- `src/index.ts` — rewrite: init logger, start scheduler, graceful SIGTERM/SIGINT.
-- `src/jobs/.gitkeep` — placeholder for future job modules.
-- `src/scheduler.test.ts`, `src/logger.test.ts` — vitest unit tests.
-- `fly.toml` — always-on single machine; comment documents Monday 00:00 UTC + secrets.
-- `package.json` — fix `start` (`dist/index.js`), add `test`/`test:watch` + vitest.
-- `.env.example` — document secrets source + `LOG_LEVEL`.
+- **Create** `packages/shared/src/env.ts` + `src/env.test.ts`; re-export from `src/index.ts`.
+- **Create** `apps/web/lib/env.ts`; import it in `app/layout.tsx`.
+- **Modify** `apps/realtime/src/index.ts` — `parseEnv(realtimeEnvSchema)` at boot; pass `PORT` through.
+- **Modify** `apps/cron/src/index.ts` — parse at boot; pass `LOG_LEVEL` into `createLogger` (logger keeps its own fallback for tests); `src/logger.ts` stops reading `process.env` directly.
+- **Modify** all three `.env.example` files — every variable above, each with a comment (purpose, default, where the prod value lives).
+- **Create** `docs/env-vars.md` — full variable table + per-environment sourcing + how to add a new variable.
 
-## Out of scope (per issue)
+## Test plan
 
-Snapshot job logic (#60) and DB dump job. No integration test: the idle scaffold
-wires no packages together at runtime.
+**Unit (`packages/shared/src/env.test.ts`):**
+- happy path parses + applies defaults
+- missing `DATABASE_URL` with `NODE_ENV=production` → throws, message names the variable
+- malformed `PORT` / `LOG_LEVEL` → throws with clear issue text
+- multiple failures aggregate into one message
+- `DATABASE_AUTH_TOKEN` optional; empty string treated as unset (matches `VAR=` lines in `.env.example`)
 
-## Verification
+**Integration (`tests/integration/src/env-validation.test.ts`)** — shared↔apps
+boundary: parse each app's actual `.env.example` file against its schema, so
+examples can never drift from the schemas (acceptance criterion #1 becomes
+machine-checked). Plus a boot-failure case per app schema in prod mode.
 
-- `pnpm --filter cron dev` → logs `cron worker idle`.
-- `pnpm --filter cron typecheck` + `pnpm --filter cron test` pass.
-- `docker build -f apps/cron/Dockerfile .` succeeds (the step `fly deploy
-  --build-only` runs; `flyctl` is not installed in the sandbox).
+**Demo artifact (for PR):** terminal capture of
+`NODE_ENV=production pnpm --filter realtime start` with `DATABASE_URL` unset →
+clear boot failure naming the variable; same command with it set → boots.
+
+## Out of scope
+
+- No real secret values anywhere.
+- No new env vars beyond what apps/`.env.example`s reference today (auth vars
+  land with the Auth.js issue and will extend `webEnvSchema` then).

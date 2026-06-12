@@ -23,6 +23,11 @@ jobs:
     name: Build & Screenshot landing page
     runs-on: ubuntu-latest
 
+    env:
+      # `next build` runs with NODE_ENV=production, where webEnvSchema
+      # (packages/shared/src/env.ts) requires this var. See docs/env-vars.md.
+      NEXT_PUBLIC_REALTIME_URL: ws://localhost:4000
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
