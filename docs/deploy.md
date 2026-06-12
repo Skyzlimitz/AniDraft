@@ -127,7 +127,7 @@ fly deploy . --config apps/realtime/fly.toml --dockerfile apps/realtime/Dockerfi
 
 # Roll back a Fly app to the previous image
 fly releases --app anidraft-realtime          # find the prior version
-fly deploy --app anidraft-realtime --image <previous-image-ref>
+fly deploy --config apps/realtime/fly.toml --app anidraft-realtime --image <previous-image-ref>
 
 # Roll back web: Vercel dashboard → Deployments → ⋯ → "Promote to Production"
 # on a previous deployment (instant rollback).

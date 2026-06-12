@@ -9,6 +9,7 @@ on:
       - "apps/realtime/**"
       - "packages/db/**"
       - "packages/shared/**"
+      - "package.json"
       - "pnpm-lock.yaml"
       - "pnpm-workspace.yaml"
       - "tsconfig.base.json"
@@ -33,7 +34,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup flyctl
-        uses: superfly/flyctl-actions/setup-flyctl@master
+        uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1 # v1.6
 
       # The Dockerfile copies workspace-root files (pnpm-lock.yaml, packages/),
       # so the build context must be the repo root, not apps/realtime.
