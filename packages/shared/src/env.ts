@@ -107,11 +107,17 @@ export type CronEnv = z.infer<typeof cronEnvSchema>;
  * (see apps/web/lib/env.ts).
  */
 const webEnvObject = z.object({
-  NODE_ENV: nodeEnvSchema,
+  ...databaseShape,
   VERCEL_URL: z.string().optional(),
   NEXT_PUBLIC_REALTIME_URL: z
     .string()
     .url("must be a URL (e.g. ws://localhost:4000)")
+    .optional(),
+  // Read by Auth.js (next-auth v5) internally, validated here at boot.
+  AUTH_SECRET: z.string().min(1).optional(),
+  AUTH_URL: z
+    .string()
+    .url("must be a URL (e.g. http://localhost:3000)")
     .optional(),
 });
 
@@ -128,7 +134,24 @@ export const webEnvSchema = webEnvObject
           "required in production — set it in the Vercel project env (see docs/env-vars.md)",
       });
     }
+    if (env.NODE_ENV === "production" && env.AUTH_SECRET === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["AUTH_SECRET"],
+        message:
+          "required in production — set it in the Vercel project env (see docs/env-vars.md)",
+      });
+    }
+    if (env.NODE_ENV === "production" && env.DATABASE_URL === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["DATABASE_URL"],
+        message:
+          "required in production — set it in the Vercel project env (see docs/env-vars.md)",
+      });
+    }
   })
+  .transform(applyDevDatabaseDefault)
   .transform((env) => ({
     ...env,
     NEXT_PUBLIC_REALTIME_URL:

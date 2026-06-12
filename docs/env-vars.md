@@ -39,6 +39,10 @@ schemas in sync.
 
 | Variable | Required | Default (dev) | Description |
 |---|---|---|---|
+| `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
+| `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
+| `DATABASE_URL` | prod only | `file:./dev.db` | Turso (libSQL) connection URL for the Auth.js Drizzle adapter (`createDb()` from `@anidraft/db`). |
+| `DATABASE_AUTH_TOKEN` | no | — | Turso auth token; not needed for `file:` URLs. |
 | `NEXT_PUBLIC_REALTIME_URL` | prod only | `ws://localhost:4000` | Public URL of the realtime WebSocket server. Inlined into the client bundle at **build** time. |
 | `VERCEL_URL` | no | — | Deployment hostname; set automatically by Vercel. |
 
@@ -74,7 +78,7 @@ when running `drizzle-kit` commands. Same names, same sources as the apps.
 |---|---|---|
 | **Local dev** | `apps/web/.env.local` (git-ignored; Next.js auto-loads it) | Dev defaults cover everything. To override: `apps/<app>/.env` (git-ignored) loaded via `tsx --env-file=.env src/index.ts` |
 | **Production** | Vercel project env vars (dashboard or `vercel env add`); `VERCEL_URL` is injected by Vercel | Fly secrets: `fly secrets set DATABASE_URL=... DATABASE_AUTH_TOKEN=... --app anidraft-<app>`; `PORT` via `[env]` in `fly.toml` |
-| **CI** | tests run on dev defaults; the `Web Screenshot` workflow sets `NEXT_PUBLIC_REALTIME_URL` for its production `next build` | none needed — tests run on dev defaults |
+| **CI** | tests run on dev defaults; the `Web Screenshot` workflow sets `NEXT_PUBLIC_REALTIME_URL`, `AUTH_SECRET`, and `DATABASE_URL` (throwaway values) for its production `next build` | none needed — tests run on dev defaults |
 
 Secret **values** are never committed; `.gitignore` covers `.env`,
 `.env.local`, and `.env.*.local`. Creating/rotating the actual secrets is

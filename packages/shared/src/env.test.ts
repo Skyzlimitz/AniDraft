@@ -124,7 +124,32 @@ describe("webEnvSchema", () => {
     const env = parseEnv(webEnvSchema, {
       NODE_ENV: "production",
       NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+      AUTH_SECRET: "test-secret",
+      DATABASE_URL: "libsql://anidraft.turso.io",
     });
     expect(env.VERCEL_URL).toBeUndefined();
+  });
+
+  it("defaults DATABASE_URL to the local file db in development", () => {
+    const env = parseEnv(webEnvSchema, {});
+    expect(env.DATABASE_URL).toBe("file:./dev.db");
+  });
+
+  it("requires AUTH_SECRET and DATABASE_URL in production", () => {
+    expect(() =>
+      parseEnv(webEnvSchema, {
+        NODE_ENV: "production",
+        NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+      }),
+    ).toThrowError(
+      /AUTH_SECRET: required in production[\s\S]*DATABASE_URL: required in production/,
+    );
+  });
+
+  it("keeps AUTH_URL optional but rejects a malformed value", () => {
+    expect(parseEnv(webEnvSchema, {}).AUTH_URL).toBeUndefined();
+    expect(() =>
+      parseEnv(webEnvSchema, { AUTH_URL: "not a url" }),
+    ).toThrowError(/AUTH_URL: must be a URL/);
   });
 });

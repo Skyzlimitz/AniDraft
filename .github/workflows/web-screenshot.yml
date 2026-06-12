@@ -25,8 +25,11 @@ jobs:
 
     env:
       # `next build` runs with NODE_ENV=production, where webEnvSchema
-      # (packages/shared/src/env.ts) requires this var. See docs/env-vars.md.
+      # (packages/shared/src/env.ts) requires these vars. See docs/env-vars.md.
+      # CI-only throwaway values — no real services are reached.
       NEXT_PUBLIC_REALTIME_URL: ws://localhost:4000
+      AUTH_SECRET: ci-only-screenshot-build-secret
+      DATABASE_URL: file:./dev.db
 
     steps:
       - name: Checkout
