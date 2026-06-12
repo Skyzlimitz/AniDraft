@@ -6,7 +6,9 @@
  * go to stderr; everything else to stdout.
  */
 
-export type LogLevel = "debug" | "info" | "warn" | "error";
+import type { LogLevel } from "@anidraft/shared/env";
+
+export type { LogLevel };
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
   debug: 10,
@@ -23,7 +25,11 @@ export interface Logger {
 }
 
 export interface LoggerOptions {
-  /** Minimum level to emit. Defaults to `LOG_LEVEL` env, else `info`. */
+  /**
+   * Minimum level to emit. Defaults to `info`. The entry point passes the
+   * validated `LOG_LEVEL` env var here (see src/index.ts) — the logger itself
+   * never reads `process.env`.
+   */
   minLevel?: LogLevel;
   /** Override the output sink (used in tests). Receives a complete JSON line. */
   sink?: (line: string) => void;
@@ -31,17 +37,8 @@ export interface LoggerOptions {
   now?: () => Date;
 }
 
-function resolveMinLevel(explicit?: LogLevel): LogLevel {
-  if (explicit) return explicit;
-  const raw = process.env.LOG_LEVEL?.toLowerCase();
-  if (raw === "debug" || raw === "info" || raw === "warn" || raw === "error") {
-    return raw;
-  }
-  return "info";
-}
-
 export function createLogger(name: string, options: LoggerOptions = {}): Logger {
-  const minLevel = resolveMinLevel(options.minLevel);
+  const minLevel = options.minLevel ?? "info";
   const now = options.now ?? (() => new Date());
   const { sink } = options;
 
