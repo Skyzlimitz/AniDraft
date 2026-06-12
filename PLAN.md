@@ -1,53 +1,106 @@
-# PLAN — Issue #5: `apps/cron` weekly snapshot worker scaffold (Fly.io)
+# PLAN — Issue #8: Deploy pipelines: Vercel (web) + Fly.io (realtime, cron)
 
-## Decision: scheduling mechanism
+## Decision 1: Vercel project config
 
-**Recommendation: in-process scheduler on an always-on Fly machine.**
+**Vercel deploys via its native Git integration, not GitHub Actions.** Connecting
+the repo to a Vercel project gives preview deploys with unique URLs on every PR
+and production deploys on push to the default branch for free — re-implementing
+that in Actions would require managing `VERCEL_TOKEN`/org/project IDs and lose
+the dashboard integration.
 
-| Option | Verdict |
-|--------|---------|
-| **In-process scheduler (chosen)** | Precise Monday 00:00 UTC timing, fully configured in `fly.toml`, naturally logs `cron worker idle` while waiting, dev/prod parity, pure timing fn is unit-testable. |
-| Fly native scheduled machine | Rejected: Fly's `schedule` is **not** a valid `fly.toml` field (only the `flyctl machine run --schedule` flag), and the named buckets are coarse — the precise time can't be declared in config. |
-| `node-cron` dependency | Rejected: adds a runtime dep + lockfile churn; the testable value lives in our own "next Monday" math, not in node-cron. |
+Config split (committed where possible, UI only where unavoidable):
 
-Why Fly (not Render/Vercel): the repo standardizes `apps/cron` and `apps/realtime`
-on Fly (AGENTS.md). Vercel is serverless and can't host a persistent process;
-Render could but would split the backend across platforms. An always-on Fly
-machine mirrors `apps/realtime` and costs pennies/month.
+| Setting | Where | Value |
+|---------|-------|-------|
+| Root Directory | Vercel UI (not a valid `vercel.json` field) | `apps/web` |
+| Framework preset | `apps/web/vercel.json` | `nextjs` |
+| Install command | `apps/web/vercel.json` | `pnpm install --frozen-lockfile` (runs at workspace root — Vercel auto-detects pnpm workspaces) |
+| Build command | `apps/web/vercel.json` | `cd ../.. && pnpm turbo run build --filter=web` |
+| Ignore command | `apps/web/vercel.json` | `npx turbo-ignore web` — skips deploys when neither `web` nor its workspace deps changed |
 
-## Logging strategy
+Everything expressible in `vercel.json` is committed so the config is reviewable;
+`docs/deploy.md` documents the single UI-only setting (Root Directory) plus the
+project-connection steps.
 
-Minimal dependency-free **structured JSON** logger → one object per line on
-stdout (`{level,time,name,msg,...fields}`). Fly's log shipper aggregates stdout,
-so lines are queryable via `fly logs`. Errors go to stderr.
+## Decision 2: Fly.io deploy action
 
-## Turso connection
+**Official `superfly/flyctl-actions/setup-flyctl@master`** (the action Fly
+documents and maintains; `@master` is its documented stable tag), then plain
+`flyctl deploy --remote-only`. `--remote-only` builds on Fly's builders, so the
+workflow needs no Docker setup and stays fast.
 
-The worker reads `DATABASE_URL` + `DATABASE_AUTH_TOKEN` from env (Fly **secrets**
-in prod) and will pass them to `createDb()` from `@anidraft/db` when the snapshot
-job lands (#60). At idle the worker opens no connection, so it boots without
-secrets — keeping `pnpm --filter cron dev` runnable locally.
+Both Dockerfiles `COPY` workspace-root files (`pnpm-workspace.yaml`,
+`pnpm-lock.yaml`, `packages/...`), so the **build context must be the repo
+root**: run `flyctl deploy . --config apps/<app>/fly.toml --dockerfile
+apps/<app>/Dockerfile --remote-only` from the checkout root.
+
+One workflow per app (`deploy-realtime.yml`, `deploy-cron.yml`) as the issue
+specifies, each with:
+
+- **Trigger:** `push` to `[main, master]` (repo default is `master`; matching
+  `ci.yml` keeps a future rename painless) — PRs never deploy to Fly, so a
+  failed/feature branch can't break prod. Plus `workflow_dispatch` for manual
+  re-deploys.
+- **Paths filter:** the app dir, the packages its Dockerfile copies,
+  `pnpm-lock.yaml`, `pnpm-workspace.yaml`, `tsconfig.base.json`, `.npmrc`, and
+  the workflow file itself. (realtime → `packages/db`, `packages/shared`;
+  cron's Dockerfile copies all of `packages/`.)
+- **Concurrency:** `group: deploy-<app>`, `cancel-in-progress: false` — deploys
+  queue rather than being killed mid-rollout.
+- **Post-deploy for cron only:** `flyctl scale count 1` per the instruction in
+  `apps/cron/fly.toml` (exactly one always-on machine).
+
+## Decision 3: Secret naming convention
+
+| Secret | Lives in | Used by |
+|--------|----------|---------|
+| `FLY_API_TOKEN` | GitHub Actions repo secret | Both deploy workflows (one org-scoped deploy token covers both apps; per-app tokens documented as the hardening upgrade) |
+| `DATABASE_URL`, `DATABASE_AUTH_TOKEN` | Fly app secrets (`fly secrets set`) per app | realtime + cron at runtime |
+| `DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `AUTH_*` etc. | Vercel env vars, scoped per environment | web at build/runtime |
+
+No secrets in the repo; `docs/deploy.md` lists every required secret, where it
+lives, and the command/UI path to set it (acceptance criterion).
+
+## Decision 4: Environment promotion strategy
+
+- **Vercel Preview** env vars point at the **staging Turso branch DB**; **Vercel
+  Production** env vars point at the **main Turso DB**. Vercel's per-environment
+  scoping gives this for free; documented in `docs/deploy.md`.
+- **Fly = production only**, deployed exclusively from the default branch.
+  Realtime/cron have no preview tier in MVP (PR validation for them is CI:
+  lint/typecheck/test); noted as a future option in `docs/deploy.md`.
 
 ## Files
 
-- `src/logger.ts` — structured JSON logger (injectable sink/clock for tests).
-- `src/scheduler.ts` — pure `msUntilNextMonday(now)` + `startScheduler()` that
-  arms a timer, logs `cron worker idle`, and re-arms after each fire.
-- `src/index.ts` — rewrite: init logger, start scheduler, graceful SIGTERM/SIGINT.
-- `src/jobs/.gitkeep` — placeholder for future job modules.
-- `src/scheduler.test.ts`, `src/logger.test.ts` — vitest unit tests.
-- `fly.toml` — always-on single machine; comment documents Monday 00:00 UTC + secrets.
-- `package.json` — fix `start` (`dist/index.js`), add `test`/`test:watch` + vitest.
-- `.env.example` — document secrets source + `LOG_LEVEL`.
+- Create `.github/workflows/deploy-realtime.yml` — Fly deploy on push to default branch.
+- Create `.github/workflows/deploy-cron.yml` — same for cron + `scale count 1`.
+- Create `apps/web/vercel.json` — framework/install/build/ignore commands (the "document choice" answer: config-as-code over UI wherever Vercel allows).
+- Create `docs/deploy.md` — architecture, one-time setup (Vercel project, Fly apps, Turso branches), full secrets table, promotion strategy, manual deploy/rollback commands.
+
+## Unit-test justification (no testable logic)
+
+The change is entirely declarative config (two GitHub Actions YAML files, one
+`vercel.json`, one Markdown doc) — no functions, modules, or runtime behavior
+added, so there is nothing for Vitest to exercise. Verification instead:
+`actionlint`/YAML parse of the workflows, JSON validity of `vercel.json`, and
+`pnpm lint`/`typecheck`/`test` staying green. No integration tests: no
+package/app boundary is crossed at runtime.
 
 ## Out of scope (per issue)
 
-Snapshot job logic (#60) and DB dump job. No integration test: the idle scaffold
-wires no packages together at runtime.
+Monitoring/alerting. Also not touching `ci.yml`.
+
+## Human prerequisites (cannot be done by the agent)
+
+Vercel project created + repo connected (Root Directory `apps/web`), Fly apps
+`anidraft-realtime`/`anidraft-cron` created, `FLY_API_TOKEN` repo secret set,
+Turso staging branch created. The workflows are inert until then — they only
+run on push to the default branch, and a missing token fails the Action run
+without touching prod. All steps spelled out in `docs/deploy.md`.
 
 ## Verification
 
-- `pnpm --filter cron dev` → logs `cron worker idle`.
-- `pnpm --filter cron typecheck` + `pnpm --filter cron test` pass.
-- `docker build -f apps/cron/Dockerfile .` succeeds (the step `fly deploy
-  --build-only` runs; `flyctl` is not installed in the sandbox).
+- `actionlint` (or YAML parse) passes on both workflows; `vercel.json` parses.
+- `pnpm lint && pnpm typecheck && pnpm test` pass.
+- Acceptance criteria #1/#2 (live deploy screenshots) require the human-owned
+  Vercel/Fly accounts; the PR will note they're verifiable only post-setup.
