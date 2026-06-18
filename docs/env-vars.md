@@ -41,7 +41,7 @@ schemas in sync.
 |---|---|---|---|
 | `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
 | `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
-| `AUTH_REDIRECT_PROXY_URL` | no² | — | Stable `/api/auth` URL preview deployments route OAuth through (e.g. `https://ani-drafts.vercel.app/api/auth`). Set on the **Preview** env only. |
+| `AUTH_REDIRECT_PROXY_URL` | no² | — | Stable production `/api/auth` URL the OAuth proxy uses (e.g. `https://ani-drafts.vercel.app/api/auth`). Set on **Production + Preview**, not locally. |
 | `GOOGLE_CLIENT_ID` | no¹ | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
 | `GOOGLE_CLIENT_SECRET` | no¹ | — | Google OAuth client secret (issue #21). |
 | `DISCORD_CLIENT_ID` | no¹ | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
@@ -58,14 +58,30 @@ pair makes only that provider's sign-in fail, with a clear Auth.js error.
 
 ² **OAuth on Vercel preview deployments.** Each preview gets a fresh hostname,
 and Google/Discord reject any callback URL that isn't registered ahead of time
-(no wildcards). Rather than registering ephemeral URLs, set
-`AUTH_REDIRECT_PROXY_URL` on the **Preview** environment to the production auth
-endpoint (`https://<prod-domain>/api/auth`). Auth.js (wired via `redirectProxyUrl`
-in `apps/web/auth.ts`) then sends providers the **production** callback and
-relays the user back to the preview after the handshake. Requirements: register
-only `https://<prod-domain>/api/auth/callback/{google,discord}` with each
-provider; the production deployment must share the same `AUTH_SECRET` (it
-decrypts the proxied state); leave the variable unset in production and locally.
+(no wildcards). Rather than registering ephemeral URLs, point every deployment
+at one stable proxy: set `AUTH_REDIRECT_PROXY_URL` to the production auth
+endpoint (`https://<prod-domain>/api/auth`) and wire it via `redirectProxyUrl`
+in `apps/web/auth.ts`. How it flows (verified against `@auth/core`):
+
+- **Preview** starts sign-in: because the proxy origin differs from the preview
+  host, Auth.js sends the provider the **production** callback and stashes the
+  preview's origin in the OAuth `state`.
+- **Production** receives the callback: it forwards the user back to the
+  preview's origin **only when it too has `AUTH_REDIRECT_PROXY_URL` set** (that
+  is how it recognizes itself as the proxy — see `callback/index.js`).
+
+Requirements:
+
+- Set `AUTH_REDIRECT_PROXY_URL` on **both Production and Preview** (same
+  production URL). If it is missing from Production, the callback dead-ends
+  there and previews appear to need their own registered callback.
+- Register only `https://<prod-domain>/api/auth/callback/{google,discord}`
+  with each provider.
+- Production and Preview must share the same `AUTH_SECRET` (production parses
+  the proxied `state`).
+- The OAuth client credentials must also exist on **both** environments.
+- Leave `AUTH_REDIRECT_PROXY_URL` **unset locally**, or local sign-in would
+  route through production.
 
 Validation runs when `apps/web/lib/env.ts` is imported (from the root layout),
 so `next build` / `next dev` fail fast. `NEXT_PUBLIC_*` values must be read as
