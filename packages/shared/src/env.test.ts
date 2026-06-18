@@ -181,9 +181,9 @@ describe("webEnvSchema", () => {
     expect(parseEnv(webEnvSchema, {}).AUTH_REDIRECT_PROXY_URL).toBeUndefined();
     expect(
       parseEnv(webEnvSchema, {
-        AUTH_REDIRECT_PROXY_URL: "https://ani-drafts.vercel.app/api/auth",
+        AUTH_REDIRECT_PROXY_URL: "https://ani-draft-web.vercel.app/api/auth",
       }).AUTH_REDIRECT_PROXY_URL,
-    ).toBe("https://ani-drafts.vercel.app/api/auth");
+    ).toBe("https://ani-draft-web.vercel.app/api/auth");
     expect(() =>
       parseEnv(webEnvSchema, { AUTH_REDIRECT_PROXY_URL: "not a url" }),
     ).toThrowError(/AUTH_REDIRECT_PROXY_URL: must be a URL/);

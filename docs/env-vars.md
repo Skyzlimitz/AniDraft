@@ -41,7 +41,7 @@ schemas in sync.
 |---|---|---|---|
 | `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
 | `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
-| `AUTH_REDIRECT_PROXY_URL` | no² | — | Stable production `/api/auth` URL the OAuth proxy uses (e.g. `https://ani-drafts.vercel.app/api/auth`). Set on **Production + Preview**, not locally. |
+| `AUTH_REDIRECT_PROXY_URL` | no² | — | Stable production `/api/auth` URL the OAuth proxy uses (e.g. `https://ani-draft-web.vercel.app/api/auth`). Set on **Production + Preview**, not locally. |
 | `GOOGLE_CLIENT_ID` | no¹ | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
 | `GOOGLE_CLIENT_SECRET` | no¹ | — | Google OAuth client secret (issue #21). |
 | `DISCORD_CLIENT_ID` | no¹ | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
