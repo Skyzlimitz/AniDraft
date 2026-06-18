@@ -94,4 +94,33 @@ describe("boot fails in production when a required variable is missing", () => {
       /AUTH_SECRET: required in production[\s\S]*DATABASE_URL: required in production/,
     );
   });
+
+  it("web does not require the OAuth credentials to build in production (#23)", () => {
+    // The OAuth pairs are read only during a provider's handshake, so a
+    // production build must not fail when they're absent.
+    const env = parseEnv(webEnvSchema, {
+      NODE_ENV: "production",
+      AUTH_SECRET: "secret",
+      DATABASE_URL: "libsql://anidraft.turso.io",
+      NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+    });
+    expect(env.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(env.DISCORD_CLIENT_ID).toBeUndefined();
+  });
+
+  it("web accepts a fully populated production environment", () => {
+    const env = parseEnv(webEnvSchema, {
+      NODE_ENV: "production",
+      AUTH_SECRET: "secret",
+      DATABASE_URL: "libsql://anidraft.turso.io",
+      DATABASE_AUTH_TOKEN: "token",
+      NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+      GOOGLE_CLIENT_ID: "google-id",
+      GOOGLE_CLIENT_SECRET: "google-secret",
+      DISCORD_CLIENT_ID: "discord-id",
+      DISCORD_CLIENT_SECRET: "discord-secret",
+    });
+    expect(env.GOOGLE_CLIENT_ID).toBe("google-id");
+    expect(env.DISCORD_CLIENT_ID).toBe("discord-id");
+  });
 });

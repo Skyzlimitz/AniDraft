@@ -3,8 +3,11 @@ import { describe, expect, it } from "vitest";
 import { authConfig } from "./auth.config";
 
 describe("authConfig", () => {
-  it("has no providers yet (Google #21 / Discord #22 are separate issues)", () => {
-    expect(authConfig.providers).toEqual([]);
+  it("registers the Google and Discord OAuth providers (#21/#22)", () => {
+    const ids = authConfig.providers.map((provider) =>
+      typeof provider === "function" ? provider().id : provider.id,
+    );
+    expect(ids).toEqual(["google", "discord"]);
   });
 
   it("uses the JWT session strategy explicitly", () => {
