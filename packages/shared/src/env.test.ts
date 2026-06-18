@@ -126,8 +126,31 @@ describe("webEnvSchema", () => {
       NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
       AUTH_SECRET: "test-secret",
       DATABASE_URL: "libsql://anidraft.turso.io",
+      GOOGLE_CLIENT_ID: "google-id",
+      GOOGLE_CLIENT_SECRET: "google-secret",
+      DISCORD_CLIENT_ID: "discord-id",
+      DISCORD_CLIENT_SECRET: "discord-secret",
     });
     expect(env.VERCEL_URL).toBeUndefined();
+  });
+
+  it("requires the OAuth client credentials in production", () => {
+    expect(() =>
+      parseEnv(webEnvSchema, {
+        NODE_ENV: "production",
+        NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+        AUTH_SECRET: "test-secret",
+        DATABASE_URL: "libsql://anidraft.turso.io",
+      }),
+    ).toThrowError(
+      /GOOGLE_CLIENT_ID: required in production[\s\S]*DISCORD_CLIENT_SECRET: required in production/,
+    );
+  });
+
+  it("treats the OAuth client credentials as optional in development", () => {
+    const env = parseEnv(webEnvSchema, {});
+    expect(env.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(env.DISCORD_CLIENT_SECRET).toBeUndefined();
   });
 
   it("defaults DATABASE_URL to the local file db in development", () => {

@@ -41,6 +41,10 @@ schemas in sync.
 |---|---|---|---|
 | `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
 | `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
+| `GOOGLE_CLIENT_ID` | prod only | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
+| `GOOGLE_CLIENT_SECRET` | prod only | — | Google OAuth client secret (issue #21). |
+| `DISCORD_CLIENT_ID` | prod only | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
+| `DISCORD_CLIENT_SECRET` | prod only | — | Discord OAuth client secret (issue #22). |
 | `DATABASE_URL` | prod only | `file:./dev.db` | Turso (libSQL) connection URL for the Auth.js Drizzle adapter (`createDb()` from `@anidraft/db`). |
 | `DATABASE_AUTH_TOKEN` | no | — | Turso auth token; not needed for `file:` URLs. |
 | `NEXT_PUBLIC_REALTIME_URL` | prod only | `ws://localhost:4000` | Public URL of the realtime WebSocket server. Inlined into the client bundle at **build** time. |
