@@ -86,4 +86,12 @@ describe("boot fails in production when a required variable is missing", () => {
       parseEnv(webEnvSchema, { NODE_ENV: "production" }),
     ).toThrowError(/NEXT_PUBLIC_REALTIME_URL: required in production/);
   });
+
+  it("web requires AUTH_SECRET and DATABASE_URL (Auth.js + Drizzle adapter)", () => {
+    expect(() =>
+      parseEnv(webEnvSchema, { NODE_ENV: "production" }),
+    ).toThrowError(
+      /AUTH_SECRET: required in production[\s\S]*DATABASE_URL: required in production/,
+    );
+  });
 });
