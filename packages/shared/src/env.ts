@@ -121,10 +121,10 @@ const webEnvObject = z.object({
     .optional(),
   // OAuth client credentials for the Auth.js providers (registered in
   // #21/#22, wired in apps/web/auth-providers.ts). Optional at boot: they are
-  // only read at request time during a provider's OAuth handshake, so the
-  // build and unrelated pages must not depend on them. A missing pair just
-  // means that provider's sign-in fails (Auth.js raises a clear error) until
-  // the credentials are set in the deployment env.
+  // captured when each provider is constructed, so the build and unrelated
+  // pages never depend on them. A missing pair just means that provider's
+  // sign-in fails (Auth.js raises a clear error) until the credentials are set
+  // in the deployment env.
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   DISCORD_CLIENT_ID: z.string().min(1).optional(),

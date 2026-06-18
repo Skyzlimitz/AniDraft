@@ -3,16 +3,20 @@ import Google, { type GoogleProfile } from "next-auth/providers/google";
 import type { Provider } from "next-auth/providers";
 import type { User } from "next-auth";
 
+import { env } from "@/lib/env";
+
 /**
  * OAuth providers for AniDraft, wired with explicit profile-to-User mappers so
  * the columns we persist (see `packages/db/src/schema/auth.ts`: `user.name`,
  * `user.email`, `user.image`) are unambiguous rather than inherited from each
  * provider's upstream defaults.
  *
- * Credentials come from env vars registered in #21/#22 and validated by
- * `webEnvSchema` (packages/shared/src/env.ts). The OAuth `id`s ("google" /
- * "discord") drive the callback paths Auth.js mounts, e.g.
- * `/api/auth/callback/google`.
+ * Credentials come from the validated `env` (`@/lib/env`, schema in
+ * `packages/shared/src/env.ts`) — the single source of truth for env access,
+ * never a raw `process.env` read here. They are captured when each provider is
+ * constructed at module load and are optional at boot, so the build never
+ * depends on them. The OAuth `id`s ("google" / "discord") drive the callback
+ * paths Auth.js mounts, e.g. `/api/auth/callback/google`.
  *
  * ## Account linking
  *
@@ -66,13 +70,13 @@ export function mapDiscordProfile(profile: DiscordProfile): User {
 
 export const oauthProviders: Provider[] = [
   Google({
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    clientId: env.GOOGLE_CLIENT_ID,
+    clientSecret: env.GOOGLE_CLIENT_SECRET,
     profile: mapGoogleProfile,
   }),
   Discord({
-    clientId: process.env.DISCORD_CLIENT_ID,
-    clientSecret: process.env.DISCORD_CLIENT_SECRET,
+    clientId: env.DISCORD_CLIENT_ID,
+    clientSecret: env.DISCORD_CLIENT_SECRET,
     profile: mapDiscordProfile,
   }),
 ];

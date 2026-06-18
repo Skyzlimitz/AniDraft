@@ -50,8 +50,8 @@ schemas in sync.
 | `NEXT_PUBLIC_REALTIME_URL` | prod only | `ws://localhost:4000` | Public URL of the realtime WebSocket server. Inlined into the client bundle at **build** time. |
 | `VERCEL_URL` | no | — | Deployment hostname; set automatically by Vercel. |
 
-¹ Not required at boot — the OAuth credentials are read only during a provider's
-handshake, so the build never depends on them. Set each pair wherever that
+¹ Not required at boot — the OAuth credentials are captured when each provider
+is constructed, so the build never depends on them. Set each pair wherever that
 provider's sign-in must work (Vercel prod + preview, and locally); a missing
 pair makes only that provider's sign-in fail, with a clear Auth.js error.
 
