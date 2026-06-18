@@ -41,6 +41,7 @@ schemas in sync.
 |---|---|---|---|
 | `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
 | `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
+| `AUTH_REDIRECT_PROXY_URL` | no² | — | Stable `/api/auth` URL preview deployments route OAuth through (e.g. `https://ani-drafts.vercel.app/api/auth`). Set on the **Preview** env only. |
 | `GOOGLE_CLIENT_ID` | no¹ | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
 | `GOOGLE_CLIENT_SECRET` | no¹ | — | Google OAuth client secret (issue #21). |
 | `DISCORD_CLIENT_ID` | no¹ | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
@@ -54,6 +55,17 @@ schemas in sync.
 is constructed, so the build never depends on them. Set each pair wherever that
 provider's sign-in must work (Vercel prod + preview, and locally); a missing
 pair makes only that provider's sign-in fail, with a clear Auth.js error.
+
+² **OAuth on Vercel preview deployments.** Each preview gets a fresh hostname,
+and Google/Discord reject any callback URL that isn't registered ahead of time
+(no wildcards). Rather than registering ephemeral URLs, set
+`AUTH_REDIRECT_PROXY_URL` on the **Preview** environment to the production auth
+endpoint (`https://<prod-domain>/api/auth`). Auth.js (wired via `redirectProxyUrl`
+in `apps/web/auth.ts`) then sends providers the **production** callback and
+relays the user back to the preview after the handshake. Requirements: register
+only `https://<prod-domain>/api/auth/callback/{google,discord}` with each
+provider; the production deployment must share the same `AUTH_SECRET` (it
+decrypts the proxied state); leave the variable unset in production and locally.
 
 Validation runs when `apps/web/lib/env.ts` is imported (from the root layout),
 so `next build` / `next dev` fail fast. `NEXT_PUBLIC_*` values must be read as
