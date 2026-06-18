@@ -30,6 +30,10 @@ jobs:
       NEXT_PUBLIC_REALTIME_URL: ws://localhost:4000
       AUTH_SECRET: ci-only-screenshot-build-secret
       DATABASE_URL: file:./dev.db
+      GOOGLE_CLIENT_ID: ci-only-google-id
+      GOOGLE_CLIENT_SECRET: ci-only-google-secret
+      DISCORD_CLIENT_ID: ci-only-discord-id
+      DISCORD_CLIENT_SECRET: ci-only-discord-secret
 
     steps:
       - name: Checkout
