@@ -95,12 +95,17 @@ describe("boot fails in production when a required variable is missing", () => {
     );
   });
 
-  it("web requires the Google + Discord OAuth credentials (#21/#22)", () => {
-    expect(() =>
-      parseEnv(webEnvSchema, { NODE_ENV: "production" }),
-    ).toThrowError(
-      /GOOGLE_CLIENT_ID: required in production[\s\S]*GOOGLE_CLIENT_SECRET: required in production[\s\S]*DISCORD_CLIENT_ID: required in production[\s\S]*DISCORD_CLIENT_SECRET: required in production/,
-    );
+  it("web does not require the OAuth credentials to build in production (#23)", () => {
+    // The OAuth pairs are read only during a provider's handshake, so a
+    // production build must not fail when they're absent.
+    const env = parseEnv(webEnvSchema, {
+      NODE_ENV: "production",
+      AUTH_SECRET: "secret",
+      DATABASE_URL: "libsql://anidraft.turso.io",
+      NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+    });
+    expect(env.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(env.DISCORD_CLIENT_ID).toBeUndefined();
   });
 
   it("web accepts a fully populated production environment", () => {

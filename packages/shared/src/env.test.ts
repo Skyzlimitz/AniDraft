@@ -126,31 +126,32 @@ describe("webEnvSchema", () => {
       NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
       AUTH_SECRET: "test-secret",
       DATABASE_URL: "libsql://anidraft.turso.io",
+    });
+    expect(env.VERCEL_URL).toBeUndefined();
+  });
+
+  it("keeps the OAuth client credentials optional at boot, even in production", () => {
+    // They are only read during a provider's OAuth handshake, so a build
+    // without them must succeed (the provider's sign-in just fails later).
+    const env = parseEnv(webEnvSchema, {
+      NODE_ENV: "production",
+      NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
+      AUTH_SECRET: "test-secret",
+      DATABASE_URL: "libsql://anidraft.turso.io",
+    });
+    expect(env.GOOGLE_CLIENT_ID).toBeUndefined();
+    expect(env.DISCORD_CLIENT_SECRET).toBeUndefined();
+  });
+
+  it("parses the OAuth client credentials when present", () => {
+    const env = parseEnv(webEnvSchema, {
       GOOGLE_CLIENT_ID: "google-id",
       GOOGLE_CLIENT_SECRET: "google-secret",
       DISCORD_CLIENT_ID: "discord-id",
       DISCORD_CLIENT_SECRET: "discord-secret",
     });
-    expect(env.VERCEL_URL).toBeUndefined();
-  });
-
-  it("requires the OAuth client credentials in production", () => {
-    expect(() =>
-      parseEnv(webEnvSchema, {
-        NODE_ENV: "production",
-        NEXT_PUBLIC_REALTIME_URL: "wss://realtime.anidraft.app",
-        AUTH_SECRET: "test-secret",
-        DATABASE_URL: "libsql://anidraft.turso.io",
-      }),
-    ).toThrowError(
-      /GOOGLE_CLIENT_ID: required in production[\s\S]*DISCORD_CLIENT_SECRET: required in production/,
-    );
-  });
-
-  it("treats the OAuth client credentials as optional in development", () => {
-    const env = parseEnv(webEnvSchema, {});
-    expect(env.GOOGLE_CLIENT_ID).toBeUndefined();
-    expect(env.DISCORD_CLIENT_SECRET).toBeUndefined();
+    expect(env.GOOGLE_CLIENT_ID).toBe("google-id");
+    expect(env.DISCORD_CLIENT_ID).toBe("discord-id");
   });
 
   it("defaults DATABASE_URL to the local file db in development", () => {

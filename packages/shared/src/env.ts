@@ -120,21 +120,16 @@ const webEnvObject = z.object({
     .url("must be a URL (e.g. http://localhost:3000)")
     .optional(),
   // OAuth client credentials for the Auth.js providers (registered in
-  // #21/#22, wired in apps/web/auth-providers.ts). Required in production so a
-  // deploy without working sign-in fails loudly at boot.
+  // #21/#22, wired in apps/web/auth-providers.ts). Optional at boot: they are
+  // only read at request time during a provider's OAuth handshake, so the
+  // build and unrelated pages must not depend on them. A missing pair just
+  // means that provider's sign-in fails (Auth.js raises a clear error) until
+  // the credentials are set in the deployment env.
   GOOGLE_CLIENT_ID: z.string().min(1).optional(),
   GOOGLE_CLIENT_SECRET: z.string().min(1).optional(),
   DISCORD_CLIENT_ID: z.string().min(1).optional(),
   DISCORD_CLIENT_SECRET: z.string().min(1).optional(),
 });
-
-/** OAuth credential keys that webEnvSchema requires in production. */
-const webOAuthCredentialKeys = [
-  "GOOGLE_CLIENT_ID",
-  "GOOGLE_CLIENT_SECRET",
-  "DISCORD_CLIENT_ID",
-  "DISCORD_CLIENT_SECRET",
-] as const;
 
 export const webEnvSchema = webEnvObject
   .superRefine((env, ctx) => {
@@ -164,18 +159,6 @@ export const webEnvSchema = webEnvObject
         message:
           "required in production — set it in the Vercel project env (see docs/env-vars.md)",
       });
-    }
-    if (env.NODE_ENV === "production") {
-      for (const key of webOAuthCredentialKeys) {
-        if (env[key] === undefined) {
-          ctx.addIssue({
-            code: z.ZodIssueCode.custom,
-            path: [key],
-            message:
-              "required in production — set it in the Vercel project env (see docs/env-vars.md)",
-          });
-        }
-      }
     }
   })
   .transform(applyDevDatabaseDefault)

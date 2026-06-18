@@ -41,14 +41,19 @@ schemas in sync.
 |---|---|---|---|
 | `AUTH_SECRET` | prod only | — | Auth.js (NextAuth v5) session/token encryption secret. Generate with `openssl rand -base64 32`. |
 | `AUTH_URL` | no | — | Canonical app URL for Auth.js callbacks. Leave unset on Vercel (auto-detected). |
-| `GOOGLE_CLIENT_ID` | prod only | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
-| `GOOGLE_CLIENT_SECRET` | prod only | — | Google OAuth client secret (issue #21). |
-| `DISCORD_CLIENT_ID` | prod only | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
-| `DISCORD_CLIENT_SECRET` | prod only | — | Discord OAuth client secret (issue #22). |
+| `GOOGLE_CLIENT_ID` | no¹ | — | Google OAuth client id (issue #21). Callback `{origin}/api/auth/callback/google`. |
+| `GOOGLE_CLIENT_SECRET` | no¹ | — | Google OAuth client secret (issue #21). |
+| `DISCORD_CLIENT_ID` | no¹ | — | Discord OAuth client id (issue #22). Callback `{origin}/api/auth/callback/discord`. |
+| `DISCORD_CLIENT_SECRET` | no¹ | — | Discord OAuth client secret (issue #22). |
 | `DATABASE_URL` | prod only | `file:./dev.db` | Turso (libSQL) connection URL for the Auth.js Drizzle adapter (`createDb()` from `@anidraft/db`). |
 | `DATABASE_AUTH_TOKEN` | no | — | Turso auth token; not needed for `file:` URLs. |
 | `NEXT_PUBLIC_REALTIME_URL` | prod only | `ws://localhost:4000` | Public URL of the realtime WebSocket server. Inlined into the client bundle at **build** time. |
 | `VERCEL_URL` | no | — | Deployment hostname; set automatically by Vercel. |
+
+¹ Not required at boot — the OAuth credentials are read only during a provider's
+handshake, so the build never depends on them. Set each pair wherever that
+provider's sign-in must work (Vercel prod + preview, and locally); a missing
+pair makes only that provider's sign-in fail, with a clear Auth.js error.
 
 Validation runs when `apps/web/lib/env.ts` is imported (from the root layout),
 so `next build` / `next dev` fail fast. `NEXT_PUBLIC_*` values must be read as
