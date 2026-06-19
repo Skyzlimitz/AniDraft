@@ -19,39 +19,35 @@
  *
  * ## Transition table
  *
- * | From        | Event            | To          | Guard                                   |
- * | ----------- | ---------------- | ----------- | --------------------------------------- |
+ * | From        | Event            | To          | Guard                                    |
+ * | ----------- | ---------------- | ----------- | ---------------------------------------- |
  * | `setup`     | `FINALIZE`       | `finalized` | commissioner acts + start conditions met |
  * | `finalized` | `START_DRAFT`    | `drafting`  | draft start time reached                 |
  * | `drafting`  | `COMPLETE_DRAFT` | `in_season` | all picks completed                      |
- * | `in_season` | `END_SEASON`     | `complete`  | final-week snapshot done                 |
+ * | `in_season` | `END_SEASON`     | `completed` | final-week snapshot done                 |
  *
- * `complete` is terminal — no event transitions out of it.
+ * `completed` is terminal — no event transitions out of it.
+ *
+ * The states are exactly the {@link LeagueStatus} vocabulary (single source of
+ * truth in `types/index.ts`, mirrored by the `leagues.status` DB column enum),
+ * so a {@link LeagueState} maps 1:1 onto a persisted league row with no
+ * translation layer.
  */
 
-/** Every status a league can occupy, in lifecycle order. */
-export const LEAGUE_LIFECYCLE_STATUSES = [
-  "setup",
-  "finalized",
-  "drafting",
-  "in_season",
-  "complete",
-] as const;
-
-export type LeagueLifecycleStatus = (typeof LEAGUE_LIFECYCLE_STATUSES)[number];
+import type { LeagueStatus } from "./types/index.js";
 
 /**
  * The league state as a discriminated union on `status`. Each member is its
  * own type so call sites can `switch` exhaustively and future per-state context
  * (e.g. a `draftStartedAt` on `drafting`) can be added without widening the
- * others.
+ * others. The `status` literals are exactly {@link LeagueStatus}.
  */
 export type LeagueState =
   | { readonly status: "setup" }
   | { readonly status: "finalized" }
   | { readonly status: "drafting" }
   | { readonly status: "in_season" }
-  | { readonly status: "complete" };
+  | { readonly status: "completed" };
 
 /**
  * Events that drive transitions. Each event carries exactly the facts its
@@ -104,12 +100,12 @@ export type TransitionFailureReason =
  */
 export class LeagueTransitionError extends Error {
   override readonly name = "LeagueTransitionError";
-  readonly from: LeagueLifecycleStatus;
+  readonly from: LeagueStatus;
   readonly eventType: LeagueEventType;
   readonly reason: TransitionFailureReason;
 
   constructor(args: {
-    from: LeagueLifecycleStatus;
+    from: LeagueStatus;
     eventType: LeagueEventType;
     reason: TransitionFailureReason;
     message: string;
@@ -129,8 +125,8 @@ export class LeagueTransitionError extends Error {
  */
 export interface LeagueTransitionDef {
   readonly event: LeagueEventType;
-  readonly from: LeagueLifecycleStatus;
-  readonly to: LeagueLifecycleStatus;
+  readonly from: LeagueStatus;
+  readonly to: LeagueStatus;
   /** Human-readable description of the guard condition. */
   readonly guard: string;
 }
@@ -158,7 +154,7 @@ export const LEAGUE_TRANSITIONS: readonly LeagueTransitionDef[] = [
   {
     event: "END_SEASON",
     from: "in_season",
-    to: "complete",
+    to: "completed",
     guard: "final-week snapshot done",
   },
 ] as const;
@@ -167,7 +163,7 @@ export const LEAGUE_TRANSITIONS: readonly LeagueTransitionDef[] = [
 export const INITIAL_LEAGUE_STATE: LeagueState = { status: "setup" } as const;
 
 function fail(
-  from: LeagueLifecycleStatus,
+  from: LeagueStatus,
   eventType: LeagueEventType,
   reason: TransitionFailureReason,
   detail: string,
@@ -274,7 +270,7 @@ export function transition(
           "the final-week snapshot is not done",
         );
       }
-      return { status: "complete" };
+      return { status: "completed" };
     }
     default:
       // Exhaustiveness: if a new event type is added without a case above, this

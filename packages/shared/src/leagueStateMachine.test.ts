@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   INITIAL_LEAGUE_STATE,
-  LEAGUE_LIFECYCLE_STATUSES,
   LEAGUE_TRANSITIONS,
   LeagueTransitionError,
   canTransition,
@@ -9,6 +8,7 @@ import {
   type LeagueEvent,
   type LeagueState,
 } from "./leagueStateMachine.js";
+import { LEAGUE_STATUSES } from "./types/index.js";
 
 // Convenience builders for the four events with their guards satisfied.
 const finalize = (
@@ -47,12 +47,12 @@ const endSeason = (
 
 describe("league state machine — states", () => {
   it("defines all five statuses in lifecycle order", () => {
-    expect(LEAGUE_LIFECYCLE_STATUSES).toEqual([
+    expect(LEAGUE_STATUSES).toEqual([
       "setup",
       "finalized",
       "drafting",
       "in_season",
-      "complete",
+      "completed",
     ]);
   });
 
@@ -80,19 +80,19 @@ describe("league state machine — legal transitions", () => {
     });
   });
 
-  it("in_season → complete on END_SEASON", () => {
+  it("in_season → completed on END_SEASON", () => {
     expect(transition({ status: "in_season" }, endSeason())).toEqual({
-      status: "complete",
+      status: "completed",
     });
   });
 
-  it("walks the full lifecycle setup → complete", () => {
+  it("walks the full lifecycle setup → completed", () => {
     let state: LeagueState = INITIAL_LEAGUE_STATE;
     state = transition(state, finalize());
     state = transition(state, startDraft());
     state = transition(state, completeDraft());
     state = transition(state, endSeason());
-    expect(state).toEqual({ status: "complete" });
+    expect(state).toEqual({ status: "completed" });
   });
 
   it("does not mutate the input state", () => {
@@ -202,13 +202,13 @@ describe("league state machine — invalid transitions", () => {
     );
   });
 
-  it("treats complete as terminal — no event leaves it", () => {
-    expect(() => transition({ status: "complete" }, endSeason())).toThrowError(
+  it("treats completed as terminal — no event leaves it", () => {
+    expect(() => transition({ status: "completed" }, endSeason())).toThrowError(
       LeagueTransitionError,
     );
-    expect(() => transition({ status: "complete" }, startDraft())).toThrowError(
-      LeagueTransitionError,
-    );
+    expect(() =>
+      transition({ status: "completed" }, startDraft()),
+    ).toThrowError(LeagueTransitionError);
   });
 });
 
@@ -224,7 +224,7 @@ describe("canTransition", () => {
   });
 
   it("is false for an illegal transition", () => {
-    expect(canTransition({ status: "complete" }, finalize())).toBe(false);
+    expect(canTransition({ status: "completed" }, finalize())).toBe(false);
   });
 });
 
@@ -235,14 +235,14 @@ describe("LEAGUE_TRANSITIONS table", () => {
       ["setup", "FINALIZE", "finalized"],
       ["finalized", "START_DRAFT", "drafting"],
       ["drafting", "COMPLETE_DRAFT", "in_season"],
-      ["in_season", "END_SEASON", "complete"],
+      ["in_season", "END_SEASON", "completed"],
     ]);
   });
 
   it("only references declared statuses", () => {
     for (const t of LEAGUE_TRANSITIONS) {
-      expect(LEAGUE_LIFECYCLE_STATUSES).toContain(t.from);
-      expect(LEAGUE_LIFECYCLE_STATUSES).toContain(t.to);
+      expect(LEAGUE_STATUSES).toContain(t.from);
+      expect(LEAGUE_STATUSES).toContain(t.to);
     }
   });
 });

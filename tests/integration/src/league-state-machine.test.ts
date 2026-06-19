@@ -12,13 +12,13 @@ import {
  * Integration test: the full league lifecycle as the app will drive it.
  *
  * This walks a league from a validated create-league payload all the way to
- * `complete`, wiring together the `@anidraft/shared` pieces a real flow would:
+ * `completed`, wiring together the `@anidraft/shared` pieces a real flow would:
  * the create-league Zod schema, the draft-size helper, and the league state
  * machine. The README calls out state machines / end-to-end flows as a
  * boundary that requires an integration test.
  */
 describe("league lifecycle state machine (shared)", () => {
-  it("drives a validated league from setup to complete", () => {
+  it("drives a validated league from setup to completed", () => {
     const input = createLeagueSchema.parse({
       name: "Summer Sprint",
       visibility: "private" as const,
@@ -60,7 +60,7 @@ describe("league lifecycle state machine (shared)", () => {
       type: "END_SEASON",
       finalSnapshotDone: true,
     });
-    expect(state.status).toBe("complete");
+    expect(state.status).toBe("completed");
   });
 
   it("blocks finalize until the league meets its start conditions", () => {
