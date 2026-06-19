@@ -26,5 +26,10 @@ export default defineConfig({
     url: "http://localhost:3000",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // `next start` outside Vercel doesn't trust the request host, so Auth.js
+    // (called by the route-protection proxy) would reject every request with
+    // UntrustedHost and the proxy could never redirect. Vercel sets this
+    // implicitly in real deploys; the test server needs it set explicitly.
+    env: { AUTH_TRUST_HOST: "true" },
   },
 });
