@@ -28,12 +28,17 @@ export type ProxyDecision =
  * Pure routing decision, split out from the Auth.js wrapper so it is unit
  * testable without constructing a request: let the request through, or send an
  * unauthenticated visitor to `/sign-in` with a `callbackUrl` pointing back to
- * where they were headed (e.g. `/leagues` → `/sign-in?callbackUrl=/leagues`).
+ * where they were headed (e.g. `/leagues` → `/sign-in?callbackUrl=%2Fleagues`).
  *
- * `callbackUrl` is the bare pathname. A pathname is a valid URL query value
- * unencoded (RFC 3986 permits `/` in the query component) and contains none of
- * the characters that would need escaping, so the result stays readable and
- * matches the path verbatim.
+ * `callbackUrl` is the request pathname, percent-encoded so any path embeds
+ * safely as a query value — including the `&`/`=` characters that are legal in
+ * a URL path but would otherwise corrupt the query string. The consumer reads
+ * it back with `decodeURIComponent`.
+ *
+ * TODO: whoever wires up `callbackUrl` consumption (the sign-in flow) MUST
+ * validate it is a same-origin relative path before redirecting to it, or this
+ * turns into an open redirect. It is inert today — the redirect target is the
+ * fixed `/sign-in` and `callbackUrl` is only ever a query value here.
  */
 export function decideProxyAction(
   pathname: string,
@@ -42,7 +47,10 @@ export function decideProxyAction(
   if (isLoggedIn || isPublicRoute(pathname)) {
     return { type: "next" };
   }
-  return { type: "redirect", location: `/sign-in?callbackUrl=${pathname}` };
+  return {
+    type: "redirect",
+    location: `/sign-in?callbackUrl=${encodeURIComponent(pathname)}`,
+  };
 }
 
 const { auth } = NextAuth(authConfig);

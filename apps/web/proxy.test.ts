@@ -79,12 +79,27 @@ describe("decideProxyAction", () => {
   it("redirects unauthenticated users off protected routes with a callbackUrl", () => {
     expect(decideProxyAction("/leagues", false)).toEqual({
       type: "redirect",
-      location: "/sign-in?callbackUrl=/leagues",
+      location: "/sign-in?callbackUrl=%2Fleagues",
     });
     expect(decideProxyAction("/leagues/123/draft", false)).toEqual({
       type: "redirect",
-      location: "/sign-in?callbackUrl=/leagues/123/draft",
+      location: "/sign-in?callbackUrl=%2Fleagues%2F123%2Fdraft",
     });
+  });
+
+  it("percent-encodes path characters that are unsafe in a query value", () => {
+    // `&` and `=` are legal in a URL path but special in a query string;
+    // encoding keeps them from corrupting the `callbackUrl` param.
+    const { location } = decideProxyAction("/a&b=c", false) as {
+      type: "redirect";
+      location: string;
+    };
+    expect(location).toBe("/sign-in?callbackUrl=%2Fa%26b%3Dc");
+    // Round-trips back to the original path for the eventual consumer.
+    const callbackUrl = new URLSearchParams(location.split("?")[1]).get(
+      "callbackUrl",
+    );
+    expect(callbackUrl).toBe("/a&b=c");
   });
 
   it("never redirects to sign-in from sign-in (no loop)", () => {

@@ -11,8 +11,9 @@ test("unauthenticated visit to a protected route redirects to sign-in", async ({
 }) => {
   await page.goto("/leagues");
 
-  // Landed on the sign-in page, carrying where we were headed in callbackUrl.
-  await expect(page).toHaveURL(/\/sign-in\?callbackUrl=\/leagues$/);
+  // Landed on the sign-in page, carrying where we were headed in callbackUrl
+  // (percent-encoded: `/leagues` → `%2Fleagues`).
+  await expect(page).toHaveURL(/\/sign-in\?callbackUrl=%2Fleagues$/);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     "Sign in",
   );

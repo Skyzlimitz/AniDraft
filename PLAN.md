@@ -31,16 +31,21 @@ A separate config file or DB table would be over-engineering for two paths. The
 function so it is unit-testable without constructing a request; the `auth()`
 wrapper just translates its result into a `NextResponse`.
 
-## Decision 4: `callbackUrl` is the bare pathname
+## Decision 4: `callbackUrl` is the percent-encoded pathname
 
-The redirect target is `/sign-in?callbackUrl=<pathname>` (e.g.
-`/sign-in?callbackUrl=/leagues`), matching the acceptance criteria verbatim. A
-pathname is a valid URL query value unencoded — RFC 3986 permits `/` in the
-query component, and app pathnames contain none of the characters (`?`, `#`,
-`&`) that would need escaping. Honoring `callbackUrl` inside the sign-in flow is
+The redirect target is `/sign-in?callbackUrl=<encodeURIComponent(pathname)>`
+(e.g. `/sign-in?callbackUrl=%2Fleagues`). Encoding is the canonical way to embed
+a value in a query param and keeps any path safe — including the `&`/`=`
+characters that are legal in a URL path but would otherwise corrupt the query
+string. (Initial revision left it unencoded to match the acceptance-criteria
+string verbatim; per PR review we switched to encoding, since the only costs are
+cosmetic — `%2F` in the URL — plus updating the assertions, while the
+correctness win is real.) Honoring `callbackUrl` inside the sign-in flow is
 **not** changed here: `components/auth/actions.ts` already returns the user to
 `/leagues` after sign-in, which satisfies the issue's round-trip artifact. Full
-callbackUrl consumption is a sign-in-page concern, deferred.
+callbackUrl consumption is a sign-in-page concern, deferred — and when it lands
+it MUST validate the value is a same-origin relative path (a `TODO` in
+`proxy.ts` flags this open-redirect guard).
 
 ## Decision 5: API-route auth — documented, deferred
 
@@ -72,9 +77,9 @@ package/app boundary (it reuses the existing `authConfig`).
 
 ## Acceptance criteria → evidence
 
-- [x] `/leagues` unauthenticated → `/sign-in?callbackUrl=/leagues` — verified via
-  `curl` (307 + Location) in dev and prod (`AUTH_TRUST_HOST`) modes, and unit
-  tests.
+- [x] `/leagues` unauthenticated → `/sign-in?callbackUrl=%2Fleagues` (the
+  encoded form of `/leagues`) — verified via `curl` (307 + Location) in dev and
+  prod (`AUTH_TRUST_HOST`) modes, and unit tests.
 - [x] Public routes (`/`, `/sign-in`) reachable unauthenticated — `curl` 200.
 - [x] Authenticated user reaches protected routes — `decideProxyAction(_, true)`
   returns `next`; unit-tested.
