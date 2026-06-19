@@ -1,132 +1,92 @@
-# PLAN — Issue #20: Auth.js (NextAuth v5) setup in apps/web
+# PLAN — Issue #25: Protected routes middleware
 
-## Decision 1: Auth.js v5 (confirmed) — `next-auth@5.0.0-beta.31`
+Redirect unauthenticated visitors away from every route except the public
+allowlist, sending them to `/sign-in` with a `callbackUrl` back to where they
+were headed.
 
-v5 is the App Router-native line: it provides the universal `auth()` helper,
-`handlers` for the route handler, and first-class server-component support.
-v4 (`latest` npm tag) predates the App Router model and its
-`getServerSession(authOptions)` ergonomics are deprecated going forward.
-v5 ships under the `beta` npm dist-tag (`5.0.0-beta.31`), but it is what the
-official Auth.js docs install and its peer range explicitly includes
-`next ^16.0.0` and `react ^19` (verified against the registry) — matching our
-`next@16.2.6` / `react@19.2.4`. **Pin the exact beta version** in
-`apps/web/package.json` so a future beta can't drift in silently.
+## Decision 1: File — `proxy.ts`, not `middleware.ts`
 
-Adapter: `@auth/drizzle-adapter@1.11.2`.
+The issue names `apps/web/middleware.ts`, but this Next version (16.2.6)
+**renamed middleware to "proxy"** (see `apps/web/AGENTS.md` and the existing
+`apps/web/proxy.ts`, which already mounts `NextAuth(authConfig).auth` as the
+matched-route handler). There is no `middleware.ts`. We extend the existing
+`proxy.ts` — the same layer the issue means.
 
-## Decision 2: Session strategy — **JWT** (encrypted cookie), not database
+## Decision 2: Allowlist, not denylist (deny-by-default)
 
-- **Works in `proxy.ts` without a DB round-trip.** The route-protection
-  middleware must check the session on every matched request; with JWT the
-  check is local cookie decryption. Database sessions would add a Turso
-  round-trip per request and couple the proxy layer to the DB.
-- **Turso write economics.** Database sessions write on sign-in and update on
-  rolling expiry; JWT sessions cost zero DB operations.
-- **The adapter is still used** (for persisting users/accounts at sign-in time
-  and OAuth account linking, once providers land), so we lose nothing for #21/#22.
-- Tradeoff accepted for MVP: JWT sessions can't be revoked server-side before
-  expiry. Acceptable for a hobby league app; revisit if we need admin bans.
+We gate with an **allowlist** of public routes (`/`, `/sign-in`); everything
+else requires a session. Rationale: fail-closed. A newly added route is
+protected automatically instead of leaking until someone remembers to add it to
+a denylist. The list is tiny and unlikely to churn.
 
-`strategy: "jwt"` is set explicitly (the adapter's presence would otherwise
-flip the default to `"database"`). The JWT/session callbacks copy `user.id`
-(`token.sub`) onto `session.user.id` so server code can key DB rows by user id.
+The OAuth callback (`/api/auth/*`) is also public but never reaches this logic:
+`config.matcher` already excludes every `/api` path from the proxy, so Auth.js's
+own endpoints are untouched.
 
-## Decision 3: Drizzle adapter + the #39 circularity
+## Decision 3: Where the rule list lives — `proxy.ts`
 
-#20 says auth tables "will be created in the schema task" (#39); #39 says
-"`users` is created by Auth.js adapter; we add app-specific columns". The
-adapter cannot be wired without table objects existing at compile time, so one
-issue must own the base tables. **Recommendation: #20 owns the standard
-Auth.js tables**, since #20 is the issue that must compile against them and
-the auth-table shape is dictated by the adapter contract, not by app design:
+The allowlist is a two-entry `PUBLIC_ROUTES` constant co-located with the proxy.
+A separate config file or DB table would be over-engineering for two paths. The
+**decision** is split into a pure `decideProxyAction(pathname, isLoggedIn)`
+function so it is unit-testable without constructing a request; the `auth()`
+wrapper just translates its result into a `NextResponse`.
 
-- Create `packages/db/src/schema/auth.ts` with the four canonical Auth.js
-  SQLite tables exactly per the adapter spec: `users`, `accounts`, `sessions`,
-  `verificationTokens`. No app-specific columns — `display_name` etc. stay
-  in #39, which will extend `users` in place.
-- Export them from `packages/db/src/schema/index.ts` (keeps the documented
-  `#39/#40/#41` comment for the remaining stubs).
-- Add `createDb` schema wiring so `db` instances are schema-aware.
-- **No migration generated here** — #39's files list owns "Create migration
-  via drizzle-kit", and generating one now would force #39 into a second
-  migration for its column additions. The acceptance criterion "Drizzle
-  adapter writes to expected tables" is structurally satisfied (adapter bound
-  to real table objects, typechecked); the live write round-trip lands with
-  #39's migration, as the criterion's own parenthetical anticipates.
+## Decision 4: `callbackUrl` is the percent-encoded pathname
 
-This is a deliberate deviation from the issue's Files list (it touches
-`packages/db`) — flagged here for plan approval.
+The redirect target is `/sign-in?callbackUrl=<encodeURIComponent(pathname)>`
+(e.g. `/sign-in?callbackUrl=%2Fleagues`). Encoding is the canonical way to embed
+a value in a query param and keeps any path safe — including the `&`/`=`
+characters that are legal in a URL path but would otherwise corrupt the query
+string. (Initial revision left it unencoded to match the acceptance-criteria
+string verbatim; per PR review we switched to encoding, since the only costs are
+cosmetic — `%2F` in the URL — plus updating the assertions, while the
+correctness win is real.) Honoring `callbackUrl` inside the sign-in flow is
+**not** changed here: `components/auth/actions.ts` already returns the user to
+`/leagues` after sign-in, which satisfies the issue's round-trip artifact. Full
+callbackUrl consumption is a sign-in-page concern, deferred — and when it lands
+it MUST validate the value is a same-origin relative path (a `TODO` in
+`proxy.ts` flags this open-redirect guard).
 
-## Decision 4: Where `auth()` lives + file deviations for Next 16
+## Decision 5: API-route auth — documented, deferred
 
-- **Create `apps/web/auth.ts`** (repo-root-of-app, per Auth.js convention):
-  `export const { handlers, auth, signIn, signOut } = NextAuth({...})`.
-  Server components / server actions / route handlers import
-  `import { auth } from "@/auth"` (the `@/*` alias → `apps/web/*` exists).
-- **Create `apps/web/app/api/auth/[...nextauth]/route.ts`**: re-export
-  `GET`/`POST` from `handlers`.
-- **Create `apps/web/proxy.ts` — NOT `middleware.ts`.** The issue predates
-  Next 16: in `next@16.2.6` the `middleware` file convention is deprecated and
-  renamed to `proxy` (verified in `node_modules/next/dist/docs/.../proxy.md`;
-  Node.js runtime, same matcher semantics). Deviation flagged for approval.
-  The proxy only refreshes/validates the session cookie via `auth` as the
-  exported handler with a matcher that excludes `/api`, static assets, and
-  favicon — **no route protection rules yet** (no sign-in UI exists; gating
-  specific routes belongs to the sign-in/UI issues).
-- `providers: []` — explicitly empty; Google/Discord are #21/#22.
-  `trustHost: true` is NOT needed (Vercel sets it); rely on `AUTH_SECRET` env.
-
-## Decision 5: Env vars
-
-`apps/web/.env.example` gains:
-
-```
-AUTH_SECRET=   # openssl rand -base64 32
-AUTH_URL=      # http://localhost:3000 locally; unset on Vercel (auto-detected)
-```
-
-Root `.env.example` already lists `AUTH_SECRET` (and Discord vars for #22) —
-unchanged. `apps/web` reads `DATABASE_URL` / `DATABASE_AUTH_TOKEN` (same names
-as root `.env.example`) to build the adapter's db instance via a new
-`apps/web/lib/db.ts` (`createDb(process.env.DATABASE_URL ?? "file:./dev.db", ...)`),
-so the app boots without Turso credentials in dev.
+API routes are excluded from `config.matcher`, so the proxy never runs on them.
+Each API route handler will do its own `auth()` check when API routes land.
+Documented in the `proxy` doc comment; no code here.
 
 ## Files
 
-- Create `packages/db/src/schema/auth.ts` — canonical Auth.js tables (users, accounts, sessions, verificationTokens).
-- Modify `packages/db/src/schema/index.ts` — export auth tables.
-- Create `apps/web/auth.ts` — NextAuth config: Drizzle adapter, JWT strategy, empty providers, session callback exposing `user.id`.
-- Create `apps/web/lib/db.ts` — singleton db instance for the web app.
-- Create `apps/web/app/api/auth/[...nextauth]/route.ts` — `export const { GET, POST } = handlers`.
-- Create `apps/web/proxy.ts` — auth middleware (Next 16 name), asset-excluding matcher.
-- Modify `apps/web/package.json` — `next-auth` (pinned beta), `@auth/drizzle-adapter`.
-- Modify `apps/web/.env.example` — `AUTH_SECRET`, `AUTH_URL`.
+- Modify: `apps/web/proxy.ts` — route-gating logic + public allowlist.
+- Modify: `apps/web/proxy.test.ts` — unit tests for the new logic.
+- Add: `apps/web/e2e/protected-routes.spec.ts` — browser artifact (redirect +
+  public-route reachability).
+- Modify: `apps/web/playwright.config.ts` — `AUTH_TRUST_HOST=true` for the test
+  server (Vercel sets this implicitly in real deploys; `next start` outside
+  Vercel rejects the host as untrusted, which would block the proxy's redirect).
 
-## Tests
+## Unit-test plan (`pnpm test`)
 
-- **Unit (`apps/web`)**: `auth.test.ts` — config assertions: providers empty,
-  `strategy === "jwt"`, session callback maps `token.sub` → `session.user.id`;
-  `proxy.test.ts` — matcher excludes `/api/auth`, `_next/static`, includes app
-  routes (exercise the exported `config.matcher` regex).
-- **Integration (`tests/integration/src/auth-db.test.ts`)** — required: this
-  change crosses the web↔db boundary. Bind `DrizzleAdapter` to an in-memory
-  libsql db (`file::memory:`), apply the auth-table DDL via
-  `drizzle-kit`-generated SQL pushed inline (no committed migration),
-  round-trip `createUser`/`getUser` through the adapter against
-  `@anidraft/db` schema objects. This is also the executable evidence for
-  acceptance criterion 3.
-- **Manual verification artifact**: `pnpm --filter web dev`, then
-  `curl http://localhost:3000/api/auth/session` → `null` body with 200 —
-  captured terminal output goes in the PR.
+- `isPublicRoute`: public routes true; protected and near-miss prefixes
+  (`/sign-in-now`, `/leagues/`) false.
+- `decideProxyAction`: authenticated → `next` on any route; unauthenticated →
+  `next` on public, `redirect` to `/sign-in?callbackUrl=<path>` on protected,
+  preserving nested paths; no redirect loop from `/sign-in`.
+- Existing matcher tests retained.
 
-## Out of scope (per issue)
+No integration test: the change stays within `apps/web` and crosses no
+package/app boundary (it reuses the existing `authConfig`).
 
-No Google/Discord providers, no sign-in UI, no route-gating rules, no
-drizzle-kit migration files (owned by #39).
+## Acceptance criteria → evidence
 
-## Verification
+- [x] `/leagues` unauthenticated → `/sign-in?callbackUrl=%2Fleagues` (the
+  encoded form of `/leagues`) — verified via `curl` (307 + Location) in dev and
+  prod (`AUTH_TRUST_HOST`) modes, and unit tests.
+- [x] Public routes (`/`, `/sign-in`) reachable unauthenticated — `curl` 200.
+- [x] Authenticated user reaches protected routes — `decideProxyAction(_, true)`
+  returns `next`; unit-tested.
 
-- `pnpm lint && pnpm typecheck && pnpm test` green at root.
-- Dev server boots with no env beyond defaults; `/api/auth/session` returns
-  `null` (200) unauthenticated — curl output in PR.
-- Integration test proves adapter writes/reads the schema tables.
+## Verification artifacts
+
+- Plan: this file.
+- Browser recording: `e2e/protected-routes.spec.ts` runs in the Web Screenshot
+  workflow, uploading `screenshots/protected-redirect.png` (sign-in page after
+  the redirect, URL bar showing `?callbackUrl=/leagues`).
