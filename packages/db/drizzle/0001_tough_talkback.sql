@@ -8,6 +8,7 @@ CREATE TABLE `invite_codes` (
 	FOREIGN KEY (`league_id`) REFERENCES `leagues`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `invite_codes_league_id_idx` ON `invite_codes` (`league_id`);--> statement-breakpoint
 CREATE TABLE `league_members` (
 	`league_id` text NOT NULL,
 	`user_id` text NOT NULL,
@@ -19,11 +20,12 @@ CREATE TABLE `league_members` (
 	FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
+CREATE INDEX `league_members_user_id_idx` ON `league_members` (`user_id`);--> statement-breakpoint
 CREATE TABLE `leagues` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
 	`visibility` text DEFAULT 'private' NOT NULL,
-	`commissioner_id` text NOT NULL,
+	`commissioner_id` text,
 	`season` text NOT NULL,
 	`season_year` integer NOT NULL,
 	`max_players` integer NOT NULL,
@@ -33,5 +35,7 @@ CREATE TABLE `leagues` (
 	`finalized_at` integer,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`commissioner_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`commissioner_id`) REFERENCES `user`(`id`) ON UPDATE no action ON DELETE set null
 );
+--> statement-breakpoint
+CREATE INDEX `leagues_commissioner_id_idx` ON `leagues` (`commissioner_id`);

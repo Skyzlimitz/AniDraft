@@ -17,7 +17,7 @@ import { inviteCodes, leagueMembers, leagues } from "./leagues";
  * here. Each league table is then exercised with an insert/select round-trip.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_happy_ogun.sql"];
+const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
 
 /** Narrow the first row of a result set, failing loudly if it is missing. */
 function firstRow<T>(rows: T[]): T {
@@ -182,5 +182,64 @@ describe("league schema round-trips", () => {
       .where(eq(inviteCodes.leagueId, league.id));
     expect(members).toHaveLength(0);
     expect(invites).toHaveLength(0);
+  });
+
+  it("orphans a league (commissioner_id = NULL) when its commissioner is deleted", async () => {
+    // A throwaway commissioner whose deletion should not take the league down.
+    const departing = crypto.randomUUID();
+    await db
+      .insert(users)
+      .values({ id: departing, email: "departing@anidraft.test" });
+
+    const league = firstRow(
+      await db
+        .insert(leagues)
+        .values({
+          name: "Survivor League",
+          commissionerId: departing,
+          season: "SPRING",
+          seasonYear: 2026,
+          maxPlayers: 4,
+        })
+        .returning(),
+    );
+
+    await db.delete(users).where(eq(users.id, departing));
+
+    // The league survives the account deletion, just without a commissioner.
+    const survivor = firstRow(
+      await db.select().from(leagues).where(eq(leagues.id, league.id)),
+    );
+    expect(survivor.commissionerId).toBeNull();
+  });
+
+  it("touches updated_at on a drizzle-issued update", async () => {
+    const league = firstRow(
+      await db
+        .insert(leagues)
+        .values({
+          name: "Renamed League",
+          commissionerId,
+          season: "SUMMER",
+          seasonYear: 2026,
+          maxPlayers: 8,
+        })
+        .returning(),
+    );
+
+    // $onUpdateFn only fires when drizzle builds the UPDATE; nudge the clock so
+    // a same-millisecond write can't produce a false equal.
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    const updated = firstRow(
+      await db
+        .update(leagues)
+        .set({ name: "Renamed Again" })
+        .where(eq(leagues.id, league.id))
+        .returning(),
+    );
+
+    expect(updated.updatedAt.getTime()).toBeGreaterThan(
+      league.updatedAt.getTime(),
+    );
   });
 });
