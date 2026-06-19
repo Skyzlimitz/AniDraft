@@ -28,6 +28,11 @@ jobs:
   migrate:
     name: Apply Drizzle migrations
     runs-on: ubuntu-latest
+    # The DB credentials live as Environment secrets on the `production`
+    # environment, so the job must opt into it to receive them. This also means
+    # any protection rules on `production` (e.g. required reviewers) gate the
+    # migration — desirable for a prod write.
+    environment: production
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_AUTH_TOKEN: ${{ secrets.DATABASE_AUTH_TOKEN }}
