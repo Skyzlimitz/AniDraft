@@ -119,6 +119,15 @@ const webEnvObject = z.object({
     .string()
     .url("must be a URL (e.g. http://localhost:3000)")
     .optional(),
+  // Auth.js redirect proxy: a STABLE `/api/auth` URL (the production
+  // deployment) that ephemeral Vercel preview deployments route their OAuth
+  // callbacks through, so only the production callback needs registering with
+  // each provider. Set on preview deployments; wired into `redirectProxyUrl`
+  // in apps/web/auth.ts. See docs/env-vars.md.
+  AUTH_REDIRECT_PROXY_URL: z
+    .string()
+    .url("must be a URL (e.g. https://app.example.com/api/auth)")
+    .optional(),
   // OAuth client credentials for the Auth.js providers (registered in
   // #21/#22, wired in apps/web/auth-providers.ts). Optional at boot: they are
   // captured when each provider is constructed, so the build and unrelated
