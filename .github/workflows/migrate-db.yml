@@ -1,0 +1,52 @@
+name: Migrate DB (Turso)
+
+# Production database migrations. Like the Fly deploy workflows, this runs only
+# on pushes to the default branch (plus manual dispatch), so a PR or feature
+# branch can never touch the prod database. It fires only when a migration file
+# actually changes, so unrelated pushes are a no-op.
+#
+# drizzle-kit reads DATABASE_URL / DATABASE_AUTH_TOKEN from the environment
+# (see packages/db/drizzle.config.ts). Add them as repository secrets pointing
+# at the PRODUCTION Turso database:
+#   - DATABASE_URL          e.g. libsql://<db>.turso.io
+#   - DATABASE_AUTH_TOKEN   turso db tokens create <db>
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - "packages/db/drizzle/**"
+      - ".github/workflows/migrate-db.yml"
+  workflow_dispatch:
+
+# Never run two migrations against the same database at once; queue instead of
+# cancelling a run that may be mid-apply.
+concurrency:
+  group: migrate-db
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Apply Drizzle migrations
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_AUTH_TOKEN: ${{ secrets.DATABASE_AUTH_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm --filter @anidraft/db db:migrate
