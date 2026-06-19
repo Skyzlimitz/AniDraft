@@ -27,9 +27,16 @@ import { users } from "./auth";
  * existing CI migration job.
  */
 
-/** League lifecycle states — mirrors `LeagueStatus` in `@anidraft/shared`. */
+/**
+ * League lifecycle states — mirrors `LEAGUE_STATUSES` / `LeagueStatus` in
+ * `@anidraft/shared`, which is the single source of truth and the vocabulary
+ * the league state machine (`leagueStateMachine.ts`) transitions between. Keep
+ * this list (order included) identical to that one. `finalized` is the
+ * commissioner-locked, pre-draft state; `finalizedAt` records when it happened.
+ */
 export const LEAGUE_STATUSES = [
   "setup",
+  "finalized",
   "drafting",
   "in_season",
   "completed",
