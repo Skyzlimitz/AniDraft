@@ -76,7 +76,7 @@ describe("league lifecycle (shared schemas + utils)", () => {
       createLeagueSchema.parse({
         name: "Valid Name",
         visibility: "public",
-        maxPlayers: 99, // above max (12)
+        maxPlayers: 99, // above max (16)
         seasonYear: 2026,
         season: "SPRING",
       }),

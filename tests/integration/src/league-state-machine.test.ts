@@ -64,7 +64,7 @@ describe("league lifecycle state machine (shared)", () => {
   });
 
   it("blocks finalize until the league meets its start conditions", () => {
-    // A 1-player league fails create-league validation upstream (min 2), so the
+    // A 1-player league fails create-league validation upstream (min 4), so the
     // state machine's start-conditions guard should also refuse to finalize it.
     expect(() =>
       createLeagueSchema.parse({

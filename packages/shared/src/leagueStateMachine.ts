@@ -34,7 +34,7 @@
  * translation layer.
  */
 
-import type { LeagueStatus } from "./types/index.js";
+import type { LeagueStatus } from "./types/index";
 
 /**
  * The league state as a discriminated union on `status`. Each member is its

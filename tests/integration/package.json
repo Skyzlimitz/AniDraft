@@ -13,6 +13,7 @@
     "@anidraft/db": "workspace:*",
     "@anidraft/scoring": "workspace:*",
     "@anidraft/shared": "workspace:*",
+    "drizzle-orm": "^0.36.0",
     "zod": "^3.24.0"
   },
   "devDependencies": {
