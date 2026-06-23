@@ -3,13 +3,27 @@
  */
 
 /**
- * Generate a random invite code (8 alphanumeric characters).
+ * Characters used in invite codes. 32 unambiguous symbols — no I/O/0/1, which
+ * are easy to misread aloud or in print.
+ */
+const INVITE_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const INVITE_CODE_LENGTH = 8;
+
+/**
+ * Generate a random 8-character invite code.
+ *
+ * Uses the Web Crypto CSPRNG (`crypto.getRandomValues`), not `Math.random()`:
+ * the code is the access gate for a private league, so it must not be
+ * predictable. The alphabet is exactly 32 characters, which divides 256
+ * evenly, so mapping each random byte with `% 32` is unbiased — no rejection
+ * sampling needed.
  */
 export function generateInviteCode(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no I/O/0/1 for clarity
+  const bytes = new Uint8Array(INVITE_CODE_LENGTH);
+  globalThis.crypto.getRandomValues(bytes);
   let code = "";
-  for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+  for (const byte of bytes) {
+    code += INVITE_CODE_ALPHABET[byte % INVITE_CODE_ALPHABET.length];
   }
   return code;
 }
