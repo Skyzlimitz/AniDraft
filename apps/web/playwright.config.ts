@@ -7,6 +7,13 @@ import { defineConfig, devices } from "@playwright/test";
  * `pnpm --filter web build` first, then Playwright starts `next start` and
  * waits for it to be reachable before running specs. Screenshots are written
  * to `screenshots/` and uploaded as a CI artifact.
+ *
+ * The `e2e/` directory carries its own `package.json` with `"type": "module"`
+ * so Playwright transpiles these specs/helpers as ESM. The app itself is CJS,
+ * but the e2e helpers import `@libsql/client` and `next-auth/jwt`, whose
+ * `require` builds are `.js` files inside `"type": "module"` packages and so
+ * only load via a real ESM `import` (a CJS `require` throws "exports is not
+ * defined in ES module scope").
  */
 export default defineConfig({
   testDir: "./e2e",
