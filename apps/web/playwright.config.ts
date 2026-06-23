@@ -10,6 +10,12 @@ import { defineConfig, devices } from "@playwright/test";
  */
 export default defineConfig({
   testDir: "./e2e",
+  // Only `.spec.ts` files are Playwright specs; `.test.ts` under `e2e/` (e.g.
+  // `session.test.ts`) are vitest unit tests and must not be run here.
+  testMatch: "**/*.spec.ts",
+  // Seeds the throwaway libsql DB (migrations + the e2e commissioner) so
+  // authenticated write flows like creating a league succeed. See the file.
+  globalSetup: "./e2e/global-setup.ts",
   outputDir: "./test-results",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
