@@ -12,16 +12,17 @@ import { OAUTH_PROVIDERS, type OAuthProviderId } from "@/components/auth/provide
 const PROVIDER_IDS = new Set<string>(OAUTH_PROVIDERS.map((p) => p.id));
 
 /**
- * Begin the OAuth flow for `provider`, landing the user on `/leagues` once the
- * callback completes. The id is bound from a trusted constant in
- * `SignInButtons`, but we re-validate because server actions are a public
- * endpoint and arguments arrive from the client.
+ * Begin the OAuth flow for `provider`, landing the user on `/leagues/new` once
+ * the callback completes (the leagues index page doesn't exist yet, so we send
+ * them straight to the create-league flow). The id is bound from a trusted
+ * constant in `SignInButtons`, but we re-validate because server actions are a
+ * public endpoint and arguments arrive from the client.
  */
 export async function signInWithProvider(provider: OAuthProviderId) {
   if (!PROVIDER_IDS.has(provider)) {
     throw new Error(`Unknown OAuth provider: ${provider}`);
   }
-  await signIn(provider, { redirectTo: "/leagues" });
+  await signIn(provider, { redirectTo: "/leagues/new" });
 }
 
 /** Clear the session and return to the landing page. */

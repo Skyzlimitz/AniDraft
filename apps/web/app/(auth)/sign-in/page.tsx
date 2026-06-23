@@ -15,7 +15,7 @@ export const metadata: Metadata = {
  * `/sign-in` — the single entry point for authentication. Renders the provider
  * buttons (`SignInButtons`) inside a centered card and surfaces any Auth.js
  * `?error=` code as a friendly alert. Already-signed-in users are bounced
- * straight to `/leagues` so the page never shows a redundant login form.
+ * straight to `/leagues/new` so the page never shows a redundant login form.
  *
  * `searchParams` is a Promise in this Next version (App Router), hence the
  * `await`.
@@ -27,7 +27,7 @@ export default async function SignInPage({
 }) {
   const session = await auth();
   if (session?.user) {
-    redirect("/leagues");
+    redirect("/leagues/new");
   }
 
   const { error } = await searchParams;
