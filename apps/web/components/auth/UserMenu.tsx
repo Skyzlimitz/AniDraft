@@ -11,8 +11,9 @@ import { displayName, userInitials } from "@/components/auth/user-display";
  * directly via `auth()`:
  *
  * - Signed out → a "Sign in" link to `/sign-in`.
- * - Signed in  → the user's avatar (or initials fallback), their name, and a
- *   sign-out button wired to the `signOutAction` server action.
+ * - Signed in  → a "Create league" link to `/leagues/new`, the user's avatar
+ *   (or initials fallback), their name, and a sign-out button wired to the
+ *   `signOutAction` server action.
  *
  * Avatar hosts (Google / Discord CDNs) are allow-listed in `next.config.ts`
  * `images.remotePatterns` so `next/image` will optimize them.
@@ -33,6 +34,10 @@ export async function UserMenu() {
 
   return (
     <div className="flex items-center gap-3">
+      <Button asChild variant="outline" size="sm">
+        <Link href="/leagues/new">Create league</Link>
+      </Button>
+
       <span
         className="flex size-8 items-center justify-center overflow-hidden rounded-full border border-border bg-secondary text-xs font-medium text-secondary-foreground"
         aria-hidden={user.image ? "true" : undefined}
