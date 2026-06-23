@@ -37,6 +37,13 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const result = await createLeague(db, userId, parsed.data);
-  return Response.json(result, { status: 201 });
+  try {
+    const result = await createLeague(db, userId, parsed.data);
+    return Response.json(result, { status: 201 });
+  } catch (error) {
+    // e.g. invite-code exhaustion or a DB failure. Log for diagnosis and return
+    // a shaped 500 rather than letting Next surface an unhandled rejection.
+    console.error("Failed to create league", error);
+    return Response.json({ error: "Failed to create league" }, { status: 500 });
+  }
 }

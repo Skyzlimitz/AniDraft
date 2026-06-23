@@ -95,4 +95,19 @@ describe("POST /api/leagues", () => {
       expect.objectContaining({ name: "Spring Showdown" }),
     );
   });
+
+  it("returns a shaped 500 when league creation throws", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1" } } as never);
+    createLeagueMock.mockRejectedValue(
+      new Error("Could not generate a unique invite code"),
+    );
+    // The handler logs the failure; keep test output clean.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await POST(postRequest(validBody));
+    const json = (await res.json()) as { error: string };
+
+    expect(res.status).toBe(500);
+    expect(json.error).toBe("Failed to create league");
+  });
 });
