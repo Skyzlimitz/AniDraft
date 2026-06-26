@@ -5,6 +5,7 @@ import {
   MIN_LEAGUE_PLAYERS,
   createLeagueSchema,
   joinLeagueSchema,
+  joinPublicLeagueSchema,
 } from "./index.js";
 
 /**
@@ -100,5 +101,25 @@ describe("joinLeagueSchema", () => {
     // Padding that would pass a naive length(8) on the raw string must still be
     // rejected once trimmed down to its real length.
     expect(() => joinLeagueSchema.parse({ inviteCode: "  ABC   " })).toThrow();
+  });
+});
+
+describe("joinPublicLeagueSchema", () => {
+  it("accepts a non-empty league id and trims surrounding whitespace", () => {
+    expect(
+      joinPublicLeagueSchema.parse({ leagueId: "  league-uuid  " }).leagueId,
+    ).toBe("league-uuid");
+  });
+
+  it("rejects an empty league id", () => {
+    expect(() => joinPublicLeagueSchema.parse({ leagueId: "" })).toThrow();
+  });
+
+  it("rejects a whitespace-only league id", () => {
+    expect(() => joinPublicLeagueSchema.parse({ leagueId: "   " })).toThrow();
+  });
+
+  it("rejects a missing league id", () => {
+    expect(() => joinPublicLeagueSchema.parse({})).toThrow();
   });
 });

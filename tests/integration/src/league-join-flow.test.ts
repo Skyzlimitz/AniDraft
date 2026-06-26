@@ -14,6 +14,7 @@ import {
 import {
   generateInviteCode,
   joinLeagueSchema,
+  joinPublicLeagueSchema,
   type CreateLeagueInput,
 } from "@anidraft/shared";
 
@@ -121,6 +122,101 @@ async function joinLeague(
     .where(eq(inviteCodes.code, inviteCode));
 
   return { status: "joined", leagueId: league.id };
+}
+
+type JoinPublicResult =
+  | { status: "joined"; leagueId: string }
+  | { status: "already_member"; leagueId: string }
+  | { status: "not_found" }
+  | { status: "wrong_state"; leagueId: string; leagueStatus: LeagueStatus }
+  | { status: "league_full"; leagueId: string };
+
+/**
+ * Mirrors `apps/web/lib/leagues/joinPublicLeague.ts` — the code-free join used
+ * by the lobby Join button and the `{ leagueId }` branch of
+ * `POST /api/leagues/join`. A private (or unknown) league answers `not_found`.
+ */
+async function joinPublicLeague(
+  db: Db,
+  userId: string,
+  rawLeagueId: string,
+): Promise<JoinPublicResult> {
+  const { leagueId } = joinPublicLeagueSchema.parse({ leagueId: rawLeagueId });
+
+  const [league] = await db
+    .select()
+    .from(leagues)
+    .where(eq(leagues.id, leagueId))
+    .limit(1);
+  if (!league || league.visibility !== "public") return { status: "not_found" };
+
+  const [existing] = await db
+    .select({ userId: leagueMembers.userId })
+    .from(leagueMembers)
+    .where(
+      and(
+        eq(leagueMembers.leagueId, league.id),
+        eq(leagueMembers.userId, userId),
+      ),
+    )
+    .limit(1);
+  if (existing) return { status: "already_member", leagueId: league.id };
+
+  if (league.status !== "setup") {
+    return {
+      status: "wrong_state",
+      leagueId: league.id,
+      leagueStatus: league.status,
+    };
+  }
+
+  const active = await db
+    .select({ userId: leagueMembers.userId })
+    .from(leagueMembers)
+    .where(
+      and(
+        eq(leagueMembers.leagueId, league.id),
+        isNull(leagueMembers.kickedAt),
+      ),
+    );
+  if (active.length >= league.maxPlayers) {
+    return { status: "league_full", leagueId: league.id };
+  }
+
+  await db
+    .insert(leagueMembers)
+    .values({ leagueId: league.id, userId, role: "player" });
+
+  return { status: "joined", leagueId: league.id };
+}
+
+/** Create a public lobby league + commissioner (no invite code), returning the id. */
+async function createPublicLeague(
+  db: Db,
+  commissionerId: string,
+  overrides: Partial<CreateLeagueInput> & { status?: LeagueStatus } = {},
+): Promise<{ leagueId: string }> {
+  const [league] = await db
+    .insert(leagues)
+    .values({
+      name: overrides.name ?? "Open Lobby",
+      visibility: "public",
+      commissionerId,
+      season: overrides.season ?? "SPRING",
+      seasonYear: overrides.seasonYear ?? 2026,
+      maxPlayers: overrides.maxPlayers ?? 4,
+      status: overrides.status ?? "setup",
+    })
+    .returning({ id: leagues.id });
+  if (!league) throw new Error("league insert failed");
+
+  await db.insert(leagueMembers).values({
+    leagueId: league.id,
+    userId: commissionerId,
+    role: "commissioner",
+  });
+
+  return { leagueId: league.id };
 }
 
 /** Create a private league + commissioner + invite code, returning the ids. */
@@ -248,5 +344,99 @@ describe("join-league flow (shared schema + db)", () => {
     const result = await joinLeague(db, joinerId, `  ${code.toLowerCase()}  `);
 
     expect(result).toEqual({ status: "joined", leagueId });
+  });
+});
+
+describe("join-public-lobby flow (shared schema + db)", () => {
+  let db: Db;
+  let commissionerId: string;
+
+  beforeEach(async () => {
+    db = createDb(":memory:");
+    await applyMigrations(db);
+    commissionerId = await seedUser(db, "commish@anidraft.test");
+  });
+
+  it("lets a fresh user join a public setup league by id, no code", async () => {
+    const { leagueId } = await createPublicLeague(db, commissionerId);
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+
+    const result = await joinPublicLeague(db, joinerId, leagueId);
+
+    expect(result).toEqual({ status: "joined", leagueId });
+
+    const members = await db
+      .select()
+      .from(leagueMembers)
+      .where(eq(leagueMembers.leagueId, leagueId));
+    expect(members).toHaveLength(2); // commissioner + joiner
+    expect(members.find((m) => m.userId === joinerId)?.role).toBe("player");
+  });
+
+  it("rejects a no-code join of a private league as not_found", async () => {
+    // The acceptance-criteria guard: a private league reached by id must not be
+    // joinable without its invite code — same opaque answer as an unknown id.
+    const { leagueId } = await createPrivateLeague(db, commissionerId);
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+
+    const result = await joinPublicLeague(db, joinerId, leagueId);
+
+    expect(result).toEqual({ status: "not_found" });
+    const rows = await db
+      .select()
+      .from(leagueMembers)
+      .where(eq(leagueMembers.userId, joinerId));
+    expect(rows).toHaveLength(0);
+  });
+
+  it("reports not_found for an unknown league id", async () => {
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+
+    const result = await joinPublicLeague(db, joinerId, crypto.randomUUID());
+
+    expect(result).toEqual({ status: "not_found" });
+  });
+
+  it("is idempotent: a second join reports already_member, no duplicate row", async () => {
+    const { leagueId } = await createPublicLeague(db, commissionerId);
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+    await joinPublicLeague(db, joinerId, leagueId);
+
+    const again = await joinPublicLeague(db, joinerId, leagueId);
+
+    expect(again).toEqual({ status: "already_member", leagueId });
+    const rows = await db
+      .select()
+      .from(leagueMembers)
+      .where(eq(leagueMembers.userId, joinerId));
+    expect(rows).toHaveLength(1);
+  });
+
+  it("rejects joining a public league that has left setup", async () => {
+    const { leagueId } = await createPublicLeague(db, commissionerId, {
+      status: "drafting",
+    });
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+
+    const result = await joinPublicLeague(db, joinerId, leagueId);
+
+    expect(result).toEqual({
+      status: "wrong_state",
+      leagueId,
+      leagueStatus: "drafting",
+    });
+  });
+
+  it("rejects joining a full public league", async () => {
+    const { leagueId } = await createPublicLeague(db, commissionerId, {
+      maxPlayers: 2,
+    });
+    const firstJoiner = await seedUser(db, "first@anidraft.test");
+    await joinPublicLeague(db, firstJoiner, leagueId); // fills the 2nd of 2 seats
+
+    const secondJoiner = await seedUser(db, "second@anidraft.test");
+    const result = await joinPublicLeague(db, secondJoiner, leagueId);
+
+    expect(result).toEqual({ status: "league_full", leagueId });
   });
 });
