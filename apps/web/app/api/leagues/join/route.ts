@@ -17,8 +17,10 @@ import { joinPublicLeague } from "@/lib/leagues/joinPublicLeague";
  *   around the invite-code flow.
  *
  * The proxy (`proxy.ts`) deliberately does NOT cover `/api`, so this handler
- * owns its own auth check. The body is validated with the shared
- * `joinLeagueRequestSchema` (a union of the two shapes); the chosen domain
+ * owns its own auth check. The body shape picks the path: one carrying a
+ * `leagueId` (and no `inviteCode`) is validated with `joinPublicLeagueSchema`,
+ * everything else with `joinLeagueSchema` — selecting a single schema up front
+ * (rather than a union) keeps `fieldErrors` per-field. The chosen domain
  * function returns a tagged result which this handler maps to a status code:
  *
  * - `joined`               -> 201 `{ status, leagueId }`
