@@ -46,8 +46,10 @@ export async function joinLobbyAction(
 
   try {
     const result = await joinPublicLeague(db, userId, leagueId);
-    // `joined` / `already_member` change what the list should show; revalidate
-    // so seat counts and membership badges reflect the new state.
+    // Revalidate unconditionally: a successful join changes seat counts and
+    // membership badges, and for the no-op outcomes (not_found / wrong_state /
+    // league_full) the league has since changed under us, so refreshing the
+    // list to drop or update that row is exactly right too.
     revalidatePath("/lobbies");
 
     switch (result.status) {

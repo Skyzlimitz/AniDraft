@@ -1,12 +1,13 @@
 import type { LobbyListing } from "@/lib/leagues/listLobbies";
 
 import { JoinLobbyButton } from "./JoinLobbyButton";
+import { LobbyDraftTime } from "./LobbyDraftTime";
 
 /**
  * One lobby row: league name, commissioner, season, draft time, and seat count,
- * plus a Join control. This is a Server Component — only the interactive Join
- * button (a Client Component) hydrates — so date formatting runs once on the
- * server with no hydration mismatch.
+ * plus a Join control. This is a Server Component; the interactive Join button
+ * and the draft-time stamp (which formats in the viewer's timezone) are the
+ * Client Components that hydrate.
  */
 export function LobbyCard({ lobby }: { lobby: LobbyListing }) {
   return (
@@ -24,7 +25,14 @@ export function LobbyCard({ lobby }: { lobby: LobbyListing }) {
           </div>
           <div className="flex gap-1">
             <dt className="sr-only">Draft time</dt>
-            <dd>🗓️ {formatDraftTime(lobby.draftStartsAt)}</dd>
+            <dd>
+              🗓️{" "}
+              {lobby.draftStartsAt ? (
+                <LobbyDraftTime iso={lobby.draftStartsAt.toISOString()} />
+              ) : (
+                "Draft time TBD"
+              )}
+            </dd>
           </div>
         </dl>
       </div>
@@ -50,13 +58,4 @@ export function LobbyCard({ lobby }: { lobby: LobbyListing }) {
 function formatSeason(season: string, year: number): string {
   const label = season.charAt(0) + season.slice(1).toLowerCase();
   return `${label} ${year}`;
-}
-
-/** A human draft time, or a placeholder when the commissioner hasn't set one. */
-function formatDraftTime(draftStartsAt: Date | null): string {
-  if (!draftStartsAt) return "Draft time TBD";
-  return draftStartsAt.toLocaleString("en-US", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
 }

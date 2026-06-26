@@ -106,3 +106,9 @@ public lobbies, screenshot the list, join one, screenshot the result.
 
 League detail page (`/leagues/[id]` doesn't exist yet — Join stays on `/lobbies`
 and revalidates), draft-time sort option, real-time seat updates.
+
+**Kicked-member re-admission** stays out of scope (a separate kick/transfer
+flow). A kicked user's row lingers, so `joinPublicLeague` reports them
+`already_member`; to keep the UI consistent, `listLobbies` flags any membership
+row (kicked or not) as `viewerIsMember`, so a kicked viewer sees the "you're in"
+badge rather than a Join button that can't succeed.

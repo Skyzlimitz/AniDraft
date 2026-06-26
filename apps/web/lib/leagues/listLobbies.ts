@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import {
   leagueMembers,
   leagues,
@@ -108,6 +108,10 @@ export async function listLobbies(
     .having(hasFreeSeat);
   const total = totalRows.length;
   const totalPages = Math.max(1, Math.ceil(total / safePageSize));
+  // Clamp to the last real page now that we know `totalPages`, so an
+  // out-of-range `?page=99` lands on the last page (with content) instead of
+  // overshooting the OFFSET into an empty list while the pager reads "99 of 3".
+  const currentPage = Math.min(safePage, totalPages);
 
   const rows = await db
     .select({
@@ -128,11 +132,18 @@ export async function listLobbies(
     .having(hasFreeSeat)
     .orderBy(desc(leagues.createdAt))
     .limit(safePageSize)
-    .offset((safePage - 1) * safePageSize);
+    .offset((currentPage - 1) * safePageSize);
 
   // Flag rows the viewer already belongs to so the UI shows "you're in" rather
   // than a Join button that would just return `already_member`. One extra query
   // scoped to the page's league ids keeps this off the grouped aggregate above.
+  //
+  // This intentionally does NOT filter `kickedAt`: `joinPublicLeague`'s
+  // existing-membership check matches on (league, user) alone, so a kicked
+  // user's lingering row still answers `already_member`. We mirror that here —
+  // counting any membership row as "member" — so the two paths agree and a
+  // kicked viewer sees the badge instead of a Join button that can't succeed.
+  // Re-admitting kicked members is a separate flow (see PLAN.md out-of-scope).
   const memberOf = new Set<string>();
   const pageIds = rows.map((row) => row.id);
   if (viewerId && pageIds.length > 0) {
@@ -142,7 +153,6 @@ export async function listLobbies(
       .where(
         and(
           eq(leagueMembers.userId, viewerId),
-          isNull(leagueMembers.kickedAt),
           inArray(leagueMembers.leagueId, pageIds),
         ),
       );
@@ -163,5 +173,11 @@ export async function listLobbies(
     viewerIsMember: memberOf.has(row.id),
   }));
 
-  return { lobbies, total, page: safePage, pageSize: safePageSize, totalPages };
+  return {
+    lobbies,
+    total,
+    page: currentPage,
+    pageSize: safePageSize,
+    totalPages,
+  };
 }

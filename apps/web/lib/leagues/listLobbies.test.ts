@@ -242,10 +242,17 @@ describe("listLobbies", () => {
     const page3 = await listLobbies(db, { page: 3, pageSize: 2 });
     expect(page3.lobbies.map((l) => l.name)).toEqual(["L0"]);
 
-    // Out-of-range / non-positive pages are clamped, not errored.
-    const clamped = await listLobbies(db, { page: 0, pageSize: 2 });
-    expect(clamped.page).toBe(1);
-    expect(clamped.lobbies.map((l) => l.name)).toEqual(["L4", "L3"]);
+    // Non-positive pages clamp up to the first page.
+    const low = await listLobbies(db, { page: 0, pageSize: 2 });
+    expect(low.page).toBe(1);
+    expect(low.lobbies.map((l) => l.name)).toEqual(["L4", "L3"]);
+
+    // Out-of-range pages clamp down to the last real page (content, not a
+    // phantom "page 99 of 3" with an empty list).
+    const high = await listLobbies(db, { page: 99, pageSize: 2 });
+    expect(high.page).toBe(3);
+    expect(high.totalPages).toBe(3);
+    expect(high.lobbies.map((l) => l.name)).toEqual(["L0"]);
   });
 
   it("flags lobbies the viewer already belongs to", async () => {
@@ -261,6 +268,27 @@ describe("listLobbies", () => {
     const byId = new Map(result.lobbies.map((l) => [l.id, l]));
     expect(byId.get(mine)?.viewerIsMember).toBe(true);
     expect(byId.get(theirs)?.viewerIsMember).toBe(false);
+  });
+
+  it("flags a previously-kicked viewer as a member (matches join's check)", async () => {
+    // `joinPublicLeague` treats any lingering (league, user) row as
+    // already_member, so the lobby flags a kicked viewer the same way — they
+    // get the badge, not a Join button that can't succeed.
+    const viewer = await seedUser(db, "Kicked Viewer");
+    const league = await seedLeague(db, { name: "Was Kicked Here" });
+    await db.insert(leagueMembers).values({
+      leagueId: league,
+      userId: viewer,
+      role: "player",
+      kickedAt: new Date(),
+    });
+
+    const result = await listLobbies(db, { viewerId: viewer });
+
+    const row = result.lobbies.find((l) => l.id === league);
+    expect(row?.viewerIsMember).toBe(true);
+    // The kicked seat still doesn't count toward the active member total.
+    expect(row?.memberCount).toBe(1);
   });
 
   it("ignores invite codes (public leagues have none) and never lists private", async () => {
