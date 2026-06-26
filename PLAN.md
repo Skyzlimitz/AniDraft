@@ -1,92 +1,73 @@
-# PLAN — Issue #25: Protected routes middleware
+# PLAN — Issue #30: Join league via invite code
 
-Redirect unauthenticated visitors away from every route except the public
-allowlist, sending them to `/sign-in` with a `callbackUrl` back to where they
-were headed.
-
-## Decision 1: File — `proxy.ts`, not `middleware.ts`
-
-The issue names `apps/web/middleware.ts`, but this Next version (16.2.6)
-**renamed middleware to "proxy"** (see `apps/web/AGENTS.md` and the existing
-`apps/web/proxy.ts`, which already mounts `NextAuth(authConfig).auth` as the
-matched-route handler). There is no `middleware.ts`. We extend the existing
-`proxy.ts` — the same layer the issue means.
-
-## Decision 2: Allowlist, not denylist (deny-by-default)
-
-We gate with an **allowlist** of public routes (`/`, `/sign-in`); everything
-else requires a session. Rationale: fail-closed. A newly added route is
-protected automatically instead of leaking until someone remembers to add it to
-a denylist. The list is tiny and unlikely to churn.
-
-The OAuth callback (`/api/auth/*`) is also public but never reaches this logic:
-`config.matcher` already excludes every `/api` path from the proxy, so Auth.js's
-own endpoints are untouched.
-
-## Decision 3: Where the rule list lives — `proxy.ts`
-
-The allowlist is a two-entry `PUBLIC_ROUTES` constant co-located with the proxy.
-A separate config file or DB table would be over-engineering for two paths. The
-**decision** is split into a pure `decideProxyAction(pathname, isLoggedIn)`
-function so it is unit-testable without constructing a request; the `auth()`
-wrapper just translates its result into a `NextResponse`.
-
-## Decision 4: `callbackUrl` is the percent-encoded pathname
-
-The redirect target is `/sign-in?callbackUrl=<encodeURIComponent(pathname)>`
-(e.g. `/sign-in?callbackUrl=%2Fleagues`). Encoding is the canonical way to embed
-a value in a query param and keeps any path safe — including the `&`/`=`
-characters that are legal in a URL path but would otherwise corrupt the query
-string. (Initial revision left it unencoded to match the acceptance-criteria
-string verbatim; per PR review we switched to encoding, since the only costs are
-cosmetic — `%2F` in the URL — plus updating the assertions, while the
-correctness win is real.) Honoring `callbackUrl` inside the sign-in flow is
-**not** changed here: `components/auth/actions.ts` already returns the user to
-`/leagues` after sign-in, which satisfies the issue's round-trip artifact. Full
-callbackUrl consumption is a sign-in-page concern, deferred — and when it lands
-it MUST validate the value is a same-origin relative path (a `TODO` in
-`proxy.ts` flags this open-redirect guard).
-
-## Decision 5: API-route auth — documented, deferred
-
-API routes are excluded from `config.matcher`, so the proxy never runs on them.
-Each API route handler will do its own `auth()` check when API routes land.
-Documented in the `proxy` doc comment; no code here.
+Let an authenticated user join a private league by visiting `/join/[code]`,
+with friendly, specific messages for every failure mode.
 
 ## Files
 
-- Modify: `apps/web/proxy.ts` — route-gating logic + public allowlist.
-- Modify: `apps/web/proxy.test.ts` — unit tests for the new logic.
-- Add: `apps/web/e2e/protected-routes.spec.ts` — browser artifact (redirect +
-  public-route reachability).
-- Modify: `apps/web/playwright.config.ts` — `AUTH_TRUST_HOST=true` for the test
-  server (Vercel sets this implicitly in real deploys; `next start` outside
-  Vercel rejects the host as untrusted, which would block the proxy's redirect).
+- Create `apps/web/lib/leagues/joinLeague.ts` — pure domain logic (no HTTP/Next),
+  mirrors the `createLeague.ts` shape so it is unit-testable against a real
+  migrated libsql DB.
+- Create `apps/web/app/api/leagues/join/route.ts` — `POST /api/leagues/join`,
+  the JSON wrapper around `joinLeague` (auth gate + Zod validate + shaped
+  responses), mirroring `app/api/leagues/route.ts`.
+- Create `apps/web/app/(app)/join/[code]/page.tsx` — server component that
+  resolves the code, gates on auth (redirect to `/sign-in?callbackUrl=...`),
+  runs the join server-side, and renders the outcome message + link.
 
-## Unit-test plan (`pnpm test`)
+## Domain logic — `joinLeague(db, userId, code)`
 
-- `isPublicRoute`: public routes true; protected and near-miss prefixes
-  (`/sign-in-now`, `/leagues/`) false.
-- `decideProxyAction`: authenticated → `next` on any route; unauthenticated →
-  `next` on public, `redirect` to `/sign-in?callbackUrl=<path>` on protected,
-  preserving nested paths; no redirect loop from `/sign-in`.
-- Existing matcher tests retained.
+Runs in one transaction and returns a discriminated result so callers render the
+right message without parsing strings:
 
-No integration test: the change stays within `apps/web` and crosses no
-package/app boundary (it reuses the existing `authConfig`).
+| result           | when                                                       |
+| ---------------- | ---------------------------------------------------------- |
+| `joined`         | all checks pass; a `player` membership row is inserted     |
+| `already_member` | a membership row for (league, user) already exists         |
+| `invalid_code`   | code not found (or dangling -> no league)                  |
+| `expired`        | code past `expiresAt`, or `uses >= maxUses`                |
+| `wrong_state`    | league not in `setup` (carries `leagueStatus` for wording) |
+| `league_full`    | active members (`kickedAt IS NULL`) >= `maxPlayers`        |
 
-## Acceptance criteria → evidence
+Check order (most-helpful-message-first): code exists -> league exists ->
+already-member -> expired/used-up -> wrong state -> full -> join. On `joined` we
+also bump `invite_codes.uses`. The whole thing is one transaction so the
+member-count check and the insert can't race two simultaneous joiners past
+`maxPlayers`.
 
-- [x] `/leagues` unauthenticated → `/sign-in?callbackUrl=%2Fleagues` (the
-  encoded form of `/leagues`) — verified via `curl` (307 + Location) in dev and
-  prod (`AUTH_TRUST_HOST`) modes, and unit tests.
-- [x] Public routes (`/`, `/sign-in`) reachable unauthenticated — `curl` 200.
-- [x] Authenticated user reaches protected routes — `decideProxyAction(_, true)`
-  returns `next`; unit-tested.
+The page performs the join on visit (acceptance criterion #1: "visiting ... adds
+the user"). This is a GET-triggered write, which is safe here because
+`joinLeague` is idempotent — a second visit returns `already_member` and never
+inserts twice (the composite PK `(league_id, user_id)` also enforces this).
 
-## Verification artifacts
+## Page -> message mapping
 
-- Plan: this file.
-- Browser recording: `e2e/protected-routes.spec.ts` runs in the Web Screenshot
-  workflow, uploading `screenshots/protected-redirect.png` (sign-in page after
-  the redirect, URL bar showing `?callbackUrl=/leagues`).
+`joined` -> "You're in!" + link; `already_member` -> "You're already in this
+league" + link; `invalid_code` -> "invite code isn't valid"; `expired` ->
+"invite link has expired"; `wrong_state` -> state-specific copy
+(finalized/drafting/in_season/completed); `league_full` -> "league is full".
+
+## Tests
+
+- `apps/web/lib/leagues/joinLeague.test.ts` — unit, every result branch against a
+  real migrated DB (same harness as `createLeague.test.ts`), plus the
+  full-league race and `uses` increment.
+- `apps/web/app/api/leagues/join/route.test.ts` — auth gate, bad JSON, Zod
+  failure, and the result->status-code mapping (mocked `joinLeague`).
+- `tests/integration/src/league-join-flow.test.ts` — create-then-join across
+  `@anidraft/shared` + `@anidraft/db` (full, already-member, wrong-state).
+- `apps/web/e2e/join-league.spec.ts` — browser artifact: a seeded user visits
+  `/join/[code]` for a league they don't own, joins, and a re-visit shows the
+  already-member message.
+
+## Acceptance criteria coverage
+
+- Valid `/join/[code]` while authed adds to `league_members` — page + `joined`.
+- Already-member message + link — `already_member`.
+- Full league message — `league_full`.
+- Wrong-state message — `wrong_state` (per-status copy).
+
+## Out of scope
+
+Re-admitting a previously kicked member (kick/transfer flows are separate
+issues); a kicked user's existing row currently reads as `already_member`.
