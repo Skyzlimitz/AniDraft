@@ -13,8 +13,12 @@ import { authConfig } from "@/auth.config";
  * logic — `config.matcher` below excludes every `/api` path from the proxy, so
  * Auth.js's own endpoints are untouched. API-route auth is a separate concern
  * (see the `proxy` doc comment).
+ *
+ * `/lobbies` is public so anyone can browse the site-wide list of open public
+ * leagues (discovery is the point of a lobby); the Join action on that page
+ * still re-checks `auth()` and bounces a signed-out clicker to `/sign-in`.
  */
-export const PUBLIC_ROUTES = ["/", "/sign-in"] as const;
+export const PUBLIC_ROUTES = ["/", "/sign-in", "/lobbies"] as const;
 
 export function isPublicRoute(pathname: string): boolean {
   return (PUBLIC_ROUTES as readonly string[]).includes(pathname);
