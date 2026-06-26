@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   MAX_LEAGUE_PLAYERS,
+  MAX_PICK_TIMER_SECONDS,
   MIN_LEAGUE_PLAYERS,
+  MIN_PICK_TIMER_SECONDS,
   createLeagueSchema,
   joinLeagueSchema,
   joinPublicLeagueSchema,
+  updateLeagueSettingsSchema,
 } from "./index.js";
 
 /**
@@ -121,5 +124,74 @@ describe("joinPublicLeagueSchema", () => {
 
   it("rejects a missing league id", () => {
     expect(() => joinPublicLeagueSchema.parse({})).toThrow();
+  });
+});
+
+describe("updateLeagueSettingsSchema", () => {
+  it("accepts a partial update of a single field", () => {
+    const parsed = updateLeagueSettingsSchema.parse({ name: "Renamed League" });
+    expect(parsed).toEqual({ name: "Renamed League" });
+  });
+
+  it("accepts every editable field together", () => {
+    const future = new Date(Date.now() + 86_400_000).toISOString();
+    const parsed = updateLeagueSettingsSchema.parse({
+      name: "Spring Showdown",
+      maxPlayers: 10,
+      pickTimerSeconds: 120,
+      draftStartsAt: future,
+    });
+    expect(parsed.maxPlayers).toBe(10);
+    expect(parsed.pickTimerSeconds).toBe(120);
+    expect(parsed.draftStartsAt).toBeInstanceOf(Date);
+  });
+
+  it("rejects an empty update with no fields", () => {
+    expect(() => updateLeagueSettingsSchema.parse({})).toThrow();
+  });
+
+  it("enforces the pick-timer bounds", () => {
+    expect(
+      updateLeagueSettingsSchema.parse({
+        pickTimerSeconds: MIN_PICK_TIMER_SECONDS,
+      }).pickTimerSeconds,
+    ).toBe(MIN_PICK_TIMER_SECONDS);
+    expect(
+      updateLeagueSettingsSchema.parse({
+        pickTimerSeconds: MAX_PICK_TIMER_SECONDS,
+      }).pickTimerSeconds,
+    ).toBe(MAX_PICK_TIMER_SECONDS);
+
+    expect(() =>
+      updateLeagueSettingsSchema.parse({
+        pickTimerSeconds: MIN_PICK_TIMER_SECONDS - 1,
+      }),
+    ).toThrow();
+    expect(() =>
+      updateLeagueSettingsSchema.parse({
+        pickTimerSeconds: MAX_PICK_TIMER_SECONDS + 1,
+      }),
+    ).toThrow();
+  });
+
+  it("enforces the player-count bounds", () => {
+    expect(() =>
+      updateLeagueSettingsSchema.parse({ maxPlayers: MIN_LEAGUE_PLAYERS - 1 }),
+    ).toThrow();
+    expect(() =>
+      updateLeagueSettingsSchema.parse({ maxPlayers: MAX_LEAGUE_PLAYERS + 1 }),
+    ).toThrow();
+  });
+
+  it("rejects a draft start in the past", () => {
+    const past = new Date(Date.now() - 86_400_000).toISOString();
+    expect(() =>
+      updateLeagueSettingsSchema.parse({ draftStartsAt: past }),
+    ).toThrow();
+  });
+
+  it("allows clearing the draft start with null", () => {
+    const parsed = updateLeagueSettingsSchema.parse({ draftStartsAt: null });
+    expect(parsed.draftStartsAt).toBeNull();
   });
 });
