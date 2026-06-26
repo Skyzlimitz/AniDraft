@@ -66,7 +66,13 @@ export function CreateLeagueForm() {
       season: data.get("season") as string,
       seasonYear: Number(data.get("seasonYear")),
       maxPlayers: Number(data.get("maxPlayers")),
-      ...(draftStartsAt ? { draftStartsAt } : {}),
+      // Convert the timezone-less `datetime-local` value to a full ISO string
+      // (with the viewer's UTC offset applied) so the server stores the instant
+      // the commissioner intended, not the same wall-clock time read in the
+      // server's timezone.
+      ...(draftStartsAt
+        ? { draftStartsAt: new Date(draftStartsAt).toISOString() }
+        : {}),
     };
 
     try {
@@ -311,9 +317,7 @@ export function CreateLeagueForm() {
 
 function FieldError({ errors }: { errors: string[] | undefined }) {
   if (!errors || errors.length === 0) return null;
-  return (
-    <p className="text-xs text-destructive-foreground">{errors[0]}</p>
-  );
+  return <p className="text-xs text-destructive-foreground">{errors[0]}</p>;
 }
 
 function VisibilityOption({

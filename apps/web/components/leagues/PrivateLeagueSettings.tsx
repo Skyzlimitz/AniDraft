@@ -78,21 +78,42 @@ export function PrivateLeagueSettings({
 
     const data = new FormData(event.currentTarget);
 
-    // Send only the fields editable from this state. `draftStartsAt` maps an
-    // empty input to an explicit `null` (clear the schedule).
+    // Send only the fields that are both editable from this state AND actually
+    // changed. Resending an untouched field is wasteful, and for `draftStartsAt`
+    // it's a correctness bug: a schedule that's still in the future when the
+    // page loads can lapse into the past before the commissioner saves an
+    // unrelated edit, and resending that now-past timestamp would trip the
+    // schema's future-only check and 400 the whole PATCH. A diff-only payload
+    // lets name/maxPlayers edits through regardless of a stale schedule.
     const payload: Record<string, unknown> = {};
     if (canEditField("name")) {
-      payload.name = (data.get("name") as string).trim();
+      const value = (data.get("name") as string).trim();
+      if (value !== current.name) payload.name = value;
     }
     if (canEditField("maxPlayers")) {
-      payload.maxPlayers = Number(data.get("maxPlayers"));
+      const value = Number(data.get("maxPlayers"));
+      if (value !== current.maxPlayers) payload.maxPlayers = value;
     }
     if (canEditField("pickTimerSeconds")) {
-      payload.pickTimerSeconds = Number(data.get("pickTimerSeconds"));
+      const value = Number(data.get("pickTimerSeconds"));
+      if (value !== current.pickTimerSeconds) payload.pickTimerSeconds = value;
     }
     if (canEditField("draftStartsAt")) {
       const raw = (data.get("draftStartsAt") as string) || "";
-      payload.draftStartsAt = raw === "" ? null : raw;
+      if (raw !== toDateTimeLocal(current.draftStartsAt)) {
+        // Convert the timezone-less `datetime-local` value to a full ISO string
+        // (with the viewer's UTC offset applied) so the server stores the
+        // instant the commissioner intended, not the same wall-clock time read
+        // in the server's timezone. An empty input clears the schedule (`null`).
+        payload.draftStartsAt = raw === "" ? null : new Date(raw).toISOString();
+      }
+    }
+
+    // Nothing changed — don't bother the server (an empty PATCH 400s anyway).
+    if (Object.keys(payload).length === 0) {
+      setFormError("No changes to save.");
+      setSubmitting(false);
+      return;
     }
 
     try {
@@ -130,7 +151,9 @@ export function PrivateLeagueSettings({
 
       if (res.status === 409) {
         setFormError(
-          "These settings are locked now that the league has moved past setup.",
+          current.visibility === "public"
+            ? "Public league settings are fixed and can't be changed."
+            : "These settings are locked now that the league has moved past setup.",
         );
         return;
       }
@@ -165,7 +188,9 @@ export function PrivateLeagueSettings({
           role="note"
           className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
         >
-          Settings are locked once the league moves past setup.
+          {current.visibility === "public"
+            ? "Public league settings are fixed and can't be changed."
+            : "Settings are locked once the league moves past setup."}
         </div>
       )}
 

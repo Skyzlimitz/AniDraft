@@ -63,7 +63,9 @@ export default async function LeagueSettingsPage({
         </h1>
         <p className="text-sm text-muted-foreground">
           {isCommissioner
-            ? "Tune your league while it's in setup. Most settings lock once you finalize."
+            ? league.visibility === "public"
+              ? "Public league settings are fixed and can't be changed."
+              : "Tune your league while it's in setup. Most settings lock once you finalize."
             : "Settings for this league. Only the commissioner can change them."}
         </p>
       </div>
