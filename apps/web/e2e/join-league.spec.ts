@@ -33,8 +33,24 @@ test.beforeAll(async () => {
   const db = e2eDb();
   const now = Date.now();
   try {
+    // Idempotent: `beforeAll` re-runs on a Playwright retry, and the join itself
+    // adds a membership row, so clear any prior state for this fixture first.
+    // `INSERT OR IGNORE` on the owner keeps a retry from tripping the unique
+    // email constraint.
     await db.execute({
-      sql: "INSERT INTO user (id, name, email) VALUES (?, ?, ?)",
+      sql: "DELETE FROM league_members WHERE league_id = ?",
+      args: [LEAGUE_ID],
+    });
+    await db.execute({
+      sql: "DELETE FROM invite_codes WHERE code = ?",
+      args: [INVITE_CODE],
+    });
+    await db.execute({
+      sql: "DELETE FROM leagues WHERE id = ?",
+      args: [LEAGUE_ID],
+    });
+    await db.execute({
+      sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
       args: [OWNER.id, "Join Owner", OWNER.email],
     });
     await db.execute({
