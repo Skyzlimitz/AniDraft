@@ -43,12 +43,15 @@ describe("proxy", () => {
 });
 
 describe("isPublicRoute", () => {
-  it("treats the landing page and sign-in page as public", () => {
+  it("treats the landing, sign-in, and lobby pages as public", () => {
     for (const route of PUBLIC_ROUTES) {
       expect(isPublicRoute(route)).toBe(true);
     }
     expect(isPublicRoute("/")).toBe(true);
     expect(isPublicRoute("/sign-in")).toBe(true);
+    // The public lobby is browsable without a session (the Join action gates
+    // itself); see PUBLIC_ROUTES.
+    expect(isPublicRoute("/lobbies")).toBe(true);
   });
 
   it("treats everything else as protected (deny-by-default)", () => {
@@ -74,6 +77,7 @@ describe("decideProxyAction", () => {
   it("lets unauthenticated users reach public routes", () => {
     expect(decideProxyAction("/", false)).toEqual({ type: "next" });
     expect(decideProxyAction("/sign-in", false)).toEqual({ type: "next" });
+    expect(decideProxyAction("/lobbies", false)).toEqual({ type: "next" });
   });
 
   it("redirects unauthenticated users off protected routes with a callbackUrl", () => {
