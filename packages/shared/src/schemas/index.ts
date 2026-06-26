@@ -23,8 +23,14 @@ export const createLeagueSchema = z.object({
   maxPlayers: z
     .number()
     .int("Max players must be a whole number")
-    .min(MIN_LEAGUE_PLAYERS, `League needs at least ${MIN_LEAGUE_PLAYERS} players`)
-    .max(MAX_LEAGUE_PLAYERS, `League can hold at most ${MAX_LEAGUE_PLAYERS} players`),
+    .min(
+      MIN_LEAGUE_PLAYERS,
+      `League needs at least ${MIN_LEAGUE_PLAYERS} players`,
+    )
+    .max(
+      MAX_LEAGUE_PLAYERS,
+      `League can hold at most ${MAX_LEAGUE_PLAYERS} players`,
+    ),
   seasonYear: z
     .number()
     .int("Season year must be a whole number")
@@ -58,3 +64,14 @@ export const joinLeagueSchema = z.object({
 });
 
 export type JoinLeagueInput = z.infer<typeof joinLeagueSchema>;
+
+/**
+ * Body for the code-free, public-lobby join: the league is named directly by
+ * its id (a UUID), so there's no secret to present — the league's `public`
+ * visibility is the invitation. Mirrors `joinLeagueSchema` for the no-code case.
+ */
+export const joinPublicLeagueSchema = z.object({
+  leagueId: z.string().trim().min(1, "leagueId is required"),
+});
+
+export type JoinPublicLeagueInput = z.infer<typeof joinPublicLeagueSchema>;
