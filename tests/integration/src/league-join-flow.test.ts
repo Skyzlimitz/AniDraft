@@ -238,4 +238,15 @@ describe("join-league flow (shared schema + db)", () => {
 
     expect(result).toEqual({ status: "invalid_code" });
   });
+
+  it("joins with a lowercase / whitespace-padded code (schema normalizes it)", async () => {
+    const { leagueId, code } = await createPrivateLeague(db, commissionerId);
+    const joinerId = await seedUser(db, "joiner@anidraft.test");
+
+    // Codes are stored uppercase; the shared join schema trims + uppercases the
+    // input, so a sloppily-typed code still matches the stored invite.
+    const result = await joinLeague(db, joinerId, `  ${code.toLowerCase()}  `);
+
+    expect(result).toEqual({ status: "joined", leagueId });
+  });
 });

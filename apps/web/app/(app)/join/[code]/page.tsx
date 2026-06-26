@@ -131,7 +131,25 @@ function describeOutcome(result: JoinLeagueResult): Outcome {
         title: "This league is full",
         body: "Every seat is taken. Ask the commissioner if a spot opens up.",
       };
+    default:
+      // Exhaustiveness guard: a future `JoinLeagueResult` status added without a
+      // case here becomes a compile error rather than rendering an empty card.
+      return unexpectedOutcome(result);
   }
+}
+
+/**
+ * Fallback {@link Outcome} for an unreachable result status. The `never`
+ * parameter makes adding a `JoinLeagueResult` variant without a case above a
+ * compile error.
+ */
+function unexpectedOutcome(result: never): Outcome {
+  console.error("Unhandled join result", result);
+  return {
+    icon: "⚠️",
+    title: "Something went wrong",
+    body: "We couldn't process this invite. Please try again later.",
+  };
 }
 
 /** State-specific explanation for why a non-`setup` league can't be joined. */

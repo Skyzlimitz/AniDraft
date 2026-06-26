@@ -70,5 +70,13 @@ export async function POST(request: Request): Promise<Response> {
     case "wrong_state":
     case "league_full":
       return Response.json(result, { status: 409 });
+    default: {
+      // Exhaustiveness guard: a future `JoinLeagueResult` status added without a
+      // case here becomes a compile error, not an implicit `undefined` return
+      // (which Next surfaces as "No response is returned from route handler").
+      const _exhaustive: never = result;
+      console.error("Unhandled join result", _exhaustive);
+      return Response.json({ error: "Failed to join league" }, { status: 500 });
+    }
   }
 }

@@ -89,4 +89,16 @@ describe("joinLeagueSchema", () => {
   it("rejects an invite code of the wrong length", () => {
     expect(() => joinLeagueSchema.parse({ inviteCode: "ABC" })).toThrow();
   });
+
+  it("normalizes case and surrounding whitespace before validating", () => {
+    expect(
+      joinLeagueSchema.parse({ inviteCode: "  join2345  " }).inviteCode,
+    ).toBe("JOIN2345");
+  });
+
+  it("applies the length check after trimming, not before", () => {
+    // Padding that would pass a naive length(8) on the raw string must still be
+    // rejected once trimmed down to its real length.
+    expect(() => joinLeagueSchema.parse({ inviteCode: "  ABC   " })).toThrow();
+  });
 });
