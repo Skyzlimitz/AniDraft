@@ -46,7 +46,15 @@ export const createLeagueSchema = z.object({
 export type CreateLeagueInput = z.infer<typeof createLeagueSchema>;
 
 export const joinLeagueSchema = z.object({
-  inviteCode: z.string().length(8, "Invite code must be 8 characters"),
+  // Normalize before validating: codes are generated from an uppercase-only
+  // alphabet, so a hand-typed `join2345` or one with stray surrounding
+  // whitespace should match the stored code rather than fail as `invalid_code`.
+  // Trim + uppercase first, then enforce the length the generator produces.
+  inviteCode: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .pipe(z.string().length(8, "Invite code must be 8 characters")),
 });
 
 export type JoinLeagueInput = z.infer<typeof joinLeagueSchema>;
