@@ -18,6 +18,8 @@ import { updateLeagueSettings } from "@/lib/leagues/updateLeagueSettings";
  * - `forbidden`           -> 403 (caller is not the commissioner)
  * - `locked`              -> 409 (the supplied fields aren't editable from this
  *                            league state; `editableFields` says what is)
+ * - `public_field_locked` -> 403 (a public lobby PATCH named a field outside its
+ *                            allowlist; `allowedFields` says what it can edit)
  * - `invalid_max_players` -> 400 `{ fieldErrors: { maxPlayers } }`
  *
  * `params` is a Promise in this Next version (App Router), hence the `await`.
@@ -83,6 +85,16 @@ export async function PATCH(
           editableFields: result.editableFields,
         },
         { status: 409 },
+      );
+    case "public_field_locked":
+      return Response.json(
+        {
+          error:
+            "Public lobby settings are limited to max players and draft start time",
+          allowedFields: result.allowedFields,
+          disallowedFields: result.disallowedFields,
+        },
+        { status: 403 },
       );
     case "invalid_max_players":
       return Response.json(

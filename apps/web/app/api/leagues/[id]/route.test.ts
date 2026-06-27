@@ -136,6 +136,26 @@ describe("PATCH /api/leagues/[id]", () => {
     expect(json.editableFields).toEqual(["draftStartsAt"]);
   });
 
+  it("returns 403 when a public lobby PATCH names a disallowed field", async () => {
+    authMock.mockResolvedValue({ user: { id: "user-1" } } as never);
+    updateMock.mockResolvedValue({
+      status: "public_field_locked",
+      allowedFields: ["maxPlayers", "draftStartsAt"],
+      disallowedFields: ["pickTimerSeconds"],
+    });
+
+    const res = await PATCH(patchRequest({ pickTimerSeconds: 30 }), { params });
+    const json = (await res.json()) as {
+      error: string;
+      allowedFields: string[];
+      disallowedFields: string[];
+    };
+
+    expect(res.status).toBe(403);
+    expect(json.allowedFields).toEqual(["maxPlayers", "draftStartsAt"]);
+    expect(json.disallowedFields).toEqual(["pickTimerSeconds"]);
+  });
+
   it("returns 400 field error when maxPlayers is below the member count", async () => {
     authMock.mockResolvedValue({ user: { id: "user-1" } } as never);
     updateMock.mockResolvedValue({

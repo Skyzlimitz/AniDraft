@@ -8,6 +8,8 @@ import {
 } from "@anidraft/db";
 import type { UpdateLeagueSettingsInput } from "@anidraft/shared";
 
+import { PUBLIC_PICK_TIMER_SECONDS } from "./createLeague";
+
 /**
  * Update-league-settings domain logic, kept free of any HTTP/Next concerns so
  * it can be driven by the `PATCH /api/leagues/[id]` route and exercised
@@ -25,6 +27,14 @@ import type { UpdateLeagueSettingsInput } from "@anidraft/shared";
  * | `setup`               | name, maxPlayers, pickTimerSeconds, draftStartsAt |
  * | `finalized`           | draftStartsAt only (the draft hasn't started yet) |
  * | drafting / in_season / completed | nothing — settings are frozen          |
+ *
+ * **Public ("lobby") leagues** layer a hard allowlist over those state rules:
+ * only `maxPlayers` and `draftStartsAt` are ever editable (issue #34). The pick
+ * timer is locked to {@link PUBLIC_PICK_TIMER_SECONDS} and the pool is fixed to
+ * the AniList tag, so a payload touching `name` or `pickTimerSeconds` on a
+ * public league is rejected as `public_field_locked` (→ 403) — a permanent
+ * public-vs-private boundary, distinct from the transient `locked` (→ 409) a
+ * field hits once the league's lifecycle state moves past `setup`/`finalized`.
  *
  * Only the commissioner may edit at all; any other caller gets `forbidden`.
  * `maxPlayers` may never drop below the current active-member count (you can't
@@ -55,6 +65,10 @@ export interface LeagueSettingsView {
  *                     fields (e.g. editing `name` after finalize, or any edit
  *                     once drafting). `editableFields` tells the caller what (if
  *                     anything) it *could* still change from this state.
+ * - `public_field_locked` — a public ("lobby") league PATCH named a field
+ *                     outside the public allowlist (`name`/`pickTimerSeconds`).
+ *                     Unlike `locked`, this never clears with a state change;
+ *                     `allowedFields` says what a public league can ever edit.
  * - `invalid_max_players` — `maxPlayers` was below the current member count.
  */
 export type UpdateLeagueSettingsResult =
@@ -66,6 +80,11 @@ export type UpdateLeagueSettingsResult =
       leagueStatus: LeagueStatus;
       editableFields: readonly EditableField[];
     }
+  | {
+      status: "public_field_locked";
+      allowedFields: readonly EditableField[];
+      disallowedFields: readonly EditableField[];
+    }
   | { status: "invalid_max_players"; memberCount: number };
 
 /** The settings fields a commissioner can ever change, by name. */
@@ -74,6 +93,20 @@ export type EditableField =
   | "maxPlayers"
   | "pickTimerSeconds"
   | "draftStartsAt";
+
+/**
+ * The settings a **public ("lobby")** league commissioner may ever edit (issue
+ * #34): the player count and the draft start time, nothing else. Public lobbies
+ * run on stripped, uniform settings — the pick timer is locked to
+ * {@link PUBLIC_PICK_TIMER_SECONDS} and the pool is fixed to the AniList tag —
+ * so the editor exposes (and the API accepts) only these two fields. This is
+ * layered over the per-state rule in {@link editableFieldsFor}, so a public
+ * league still freezes them once it leaves `setup`/`finalized`.
+ */
+export const PUBLIC_EDITABLE_FIELDS: readonly EditableField[] = [
+  "maxPlayers",
+  "draftStartsAt",
+];
 
 /**
  * Which fields are editable from a given league status. `setup` is fully open;
@@ -97,17 +130,23 @@ export function editableFieldsFor(
 
 /**
  * Editable fields for a whole league, layering visibility over the state rule.
- * **Public** leagues run on the stripped, non-negotiable lobby settings set at
- * creation (see `createLeague`), so nothing here is editable regardless of
- * state — this settings editor is the private-league commissioner's tool
- * (issue #33). Private leagues fall through to {@link editableFieldsFor}.
+ * **Public ("lobby")** leagues run on stripped lobby settings (see
+ * `createLeague`): the pick timer and pool are fixed, so the commissioner can
+ * only ever tune the player count and draft start time (issue #34). We
+ * intersect the per-state set with {@link PUBLIC_EDITABLE_FIELDS}, so a public
+ * league is editable in `setup` (maxPlayers + draftStartsAt) and `finalized`
+ * (draftStartsAt only), and frozen once drafting — never exposing `name` or
+ * `pickTimerSeconds`. Private leagues fall through to {@link editableFieldsFor}.
  */
 export function editableFieldsForLeague(
   visibility: LeagueVisibility,
   status: LeagueStatus,
 ): readonly EditableField[] {
-  if (visibility === "public") return [];
-  return editableFieldsFor(status);
+  const byState = editableFieldsFor(status);
+  if (visibility === "public") {
+    return byState.filter((field) => PUBLIC_EDITABLE_FIELDS.includes(field));
+  }
+  return byState;
 }
 
 /**
@@ -140,11 +179,32 @@ export async function updateLeagueSettings(
       return { status: "forbidden" };
     }
 
+    const requested = requestedFields(input);
+
+    // Public lobbies have a hard allowlist: only the player count and draft
+    // start time are ever editable. A payload naming `name` or
+    // `pickTimerSeconds` crosses the public-vs-private boundary, which no state
+    // change can ever open, so answer `public_field_locked` (→ 403) rather than
+    // the transient `locked` (→ 409) used for lifecycle freezes. Checked before
+    // the state rule so the 403 reason is the precise one (the field is *never*
+    // editable here), not a generic "locked from this state".
+    if (league.visibility === "public") {
+      const disallowed = requested.filter(
+        (field) => !PUBLIC_EDITABLE_FIELDS.includes(field),
+      );
+      if (disallowed.length > 0) {
+        return {
+          status: "public_field_locked",
+          allowedFields: PUBLIC_EDITABLE_FIELDS,
+          disallowedFields: disallowed,
+        };
+      }
+    }
+
     const editable = editableFieldsForLeague(league.visibility, league.status);
     // Reject the request if it touches any field that isn't editable from this
     // state, rather than silently dropping the change — the caller asked for
     // something the league's lifecycle won't allow.
-    const requested = requestedFields(input);
     const illegal = requested.filter((field) => !editable.includes(field));
     if (illegal.length > 0) {
       return {
@@ -182,6 +242,15 @@ export async function updateLeagueSettings(
     }
     if ("draftStartsAt" in input) {
       patch.draftStartsAt = input.draftStartsAt ?? null;
+    }
+
+    // Belt-and-suspenders for the lobby invariant (issue #34): a public league's
+    // pick timer is immutable at PUBLIC_PICK_TIMER_SECONDS. The allowlist above
+    // already 403s any payload that names `pickTimerSeconds`, so this never
+    // overrides a value the caller sent — it just guarantees the DB holds 90 on
+    // every public write, healing any drift from an out-of-band change.
+    if (league.visibility === "public") {
+      patch.pickTimerSeconds = PUBLIC_PICK_TIMER_SECONDS;
     }
 
     const [updated] = await tx

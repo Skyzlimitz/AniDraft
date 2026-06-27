@@ -13,8 +13,10 @@ import {
   type LeagueStatus,
 } from "@anidraft/db";
 
+import { PUBLIC_PICK_TIMER_SECONDS } from "./createLeague";
 import {
   editableFieldsFor,
+  editableFieldsForLeague,
   updateLeagueSettings,
 } from "./updateLeagueSettings";
 
@@ -68,6 +70,37 @@ describe("editableFieldsFor", () => {
   });
 });
 
+describe("editableFieldsForLeague", () => {
+  it("leaves a private league's per-state set untouched", () => {
+    expect(editableFieldsForLeague("private", "setup")).toEqual([
+      "name",
+      "maxPlayers",
+      "pickTimerSeconds",
+      "draftStartsAt",
+    ]);
+    expect(editableFieldsForLeague("private", "finalized")).toEqual([
+      "draftStartsAt",
+    ]);
+  });
+
+  it("narrows a public lobby to player count + draft time in setup", () => {
+    expect(editableFieldsForLeague("public", "setup")).toEqual([
+      "maxPlayers",
+      "draftStartsAt",
+    ]);
+  });
+
+  it("allows only the draft time on a finalized public lobby", () => {
+    expect(editableFieldsForLeague("public", "finalized")).toEqual([
+      "draftStartsAt",
+    ]);
+  });
+
+  it("freezes a public lobby once drafting", () => {
+    expect(editableFieldsForLeague("public", "drafting")).toEqual([]);
+  });
+});
+
 describe("updateLeagueSettings", () => {
   let db: Db;
   let commissionerId: string;
@@ -79,6 +112,7 @@ describe("updateLeagueSettings", () => {
     status?: LeagueStatus;
     maxPlayers?: number;
     visibility?: "public" | "private";
+    pickTimerSeconds?: number;
   }): Promise<string> {
     const [league] = await db
       .insert(leagues)
@@ -90,6 +124,9 @@ describe("updateLeagueSettings", () => {
         seasonYear: 2026,
         maxPlayers: overrides?.maxPlayers ?? 8,
         status: overrides?.status ?? "setup",
+        ...(overrides?.pickTimerSeconds !== undefined
+          ? { pickTimerSeconds: overrides.pickTimerSeconds }
+          : {}),
       })
       .returning({ id: leagues.id });
     await db.insert(leagueMembers).values({
@@ -233,14 +270,125 @@ describe("updateLeagueSettings", () => {
     expect(result.status).toBe("updated");
   });
 
-  it("locks all settings on a public league regardless of state", async () => {
-    const leagueId = await seedLeague({ visibility: "public" });
-    const result = await updateLeagueSettings(db, leagueId, commissionerId, {
-      name: "Try to rename a public league",
+  it("lets a public lobby commissioner edit max players and draft time", async () => {
+    const leagueId = await seedLeague({
+      visibility: "public",
+      pickTimerSeconds: PUBLIC_PICK_TIMER_SECONDS,
     });
-    expect(result.status).toBe("locked");
-    if (result.status === "locked") {
-      expect(result.editableFields).toEqual([]);
+    const future = new Date(Date.now() + 86_400_000);
+
+    const result = await updateLeagueSettings(db, leagueId, commissionerId, {
+      maxPlayers: 12,
+      draftStartsAt: future,
+    });
+
+    expect(result.status).toBe("updated");
+    if (result.status === "updated") {
+      expect(result.league.maxPlayers).toBe(12);
+      expect(result.league.draftStartsAt?.getTime()).toBe(future.getTime());
+    }
+  });
+
+  it("rejects a disallowed field on a public lobby with public_field_locked", async () => {
+    const leagueId = await seedLeague({
+      visibility: "public",
+      pickTimerSeconds: PUBLIC_PICK_TIMER_SECONDS,
+    });
+
+    const renamed = await updateLeagueSettings(db, leagueId, commissionerId, {
+      name: "Try to rename a public lobby",
+    });
+    expect(renamed.status).toBe("public_field_locked");
+    if (renamed.status === "public_field_locked") {
+      expect(renamed.disallowedFields).toEqual(["name"]);
+      expect(renamed.allowedFields).toEqual(["maxPlayers", "draftStartsAt"]);
+    }
+
+    const retimed = await updateLeagueSettings(db, leagueId, commissionerId, {
+      pickTimerSeconds: 30,
+    });
+    expect(retimed.status).toBe("public_field_locked");
+    if (retimed.status === "public_field_locked") {
+      expect(retimed.disallowedFields).toEqual(["pickTimerSeconds"]);
+    }
+
+    // The rejected edits must not have written anything.
+    const [row] = await db
+      .select()
+      .from(leagues)
+      .where(eq(leagues.id, leagueId));
+    expect(row?.name).toBe("Original Name");
+    expect(row?.pickTimerSeconds).toBe(PUBLIC_PICK_TIMER_SECONDS);
+  });
+
+  it("rejects the whole PATCH when it mixes an allowed and a disallowed field", async () => {
+    const leagueId = await seedLeague({
+      visibility: "public",
+      pickTimerSeconds: PUBLIC_PICK_TIMER_SECONDS,
+    });
+
+    const result = await updateLeagueSettings(db, leagueId, commissionerId, {
+      maxPlayers: 12,
+      pickTimerSeconds: 30,
+    });
+    expect(result.status).toBe("public_field_locked");
+
+    // maxPlayers was allowed, but the disallowed pickTimerSeconds fails the
+    // whole request — nothing is written.
+    const [row] = await db
+      .select()
+      .from(leagues)
+      .where(eq(leagues.id, leagueId));
+    expect(row?.maxPlayers).toBe(8);
+  });
+
+  it("keeps a public lobby's pick timer at 90 regardless of payload", async () => {
+    // Seed a drifted timer to prove the write heals it back to the lobby value.
+    const leagueId = await seedLeague({
+      visibility: "public",
+      pickTimerSeconds: 45,
+    });
+
+    const result = await updateLeagueSettings(db, leagueId, commissionerId, {
+      maxPlayers: 10,
+    });
+    expect(result.status).toBe("updated");
+    if (result.status === "updated") {
+      expect(result.league.pickTimerSeconds).toBe(PUBLIC_PICK_TIMER_SECONDS);
+    }
+
+    const [row] = await db
+      .select()
+      .from(leagues)
+      .where(eq(leagues.id, leagueId));
+    expect(row?.pickTimerSeconds).toBe(PUBLIC_PICK_TIMER_SECONDS);
+  });
+
+  it("locks a public lobby's max players once finalized (409, not 403)", async () => {
+    const leagueId = await seedLeague({
+      visibility: "public",
+      status: "finalized",
+      pickTimerSeconds: PUBLIC_PICK_TIMER_SECONDS,
+    });
+
+    // draftStartsAt stays editable when finalized...
+    const reschedule = await updateLeagueSettings(
+      db,
+      leagueId,
+      commissionerId,
+      {
+        draftStartsAt: new Date(Date.now() + 86_400_000),
+      },
+    );
+    expect(reschedule.status).toBe("updated");
+
+    // ...but maxPlayers is allowed-by-visibility yet locked-by-state → 409.
+    const locked = await updateLeagueSettings(db, leagueId, commissionerId, {
+      maxPlayers: 12,
+    });
+    expect(locked.status).toBe("locked");
+    if (locked.status === "locked") {
+      expect(locked.editableFields).toEqual(["draftStartsAt"]);
     }
   });
 
