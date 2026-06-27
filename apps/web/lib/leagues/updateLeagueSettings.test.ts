@@ -390,6 +390,18 @@ describe("updateLeagueSettings", () => {
     if (locked.status === "locked") {
       expect(locked.editableFields).toEqual(["draftStartsAt"]);
     }
+
+    // A disallowed field still 403s, and `allowedFields` is state-aware: it
+    // advertises only what a *finalized* lobby can edit (draftStartsAt), not the
+    // now-locked maxPlayers.
+    const renamed = await updateLeagueSettings(db, leagueId, commissionerId, {
+      name: "Rename a finalized lobby",
+    });
+    expect(renamed.status).toBe("public_field_locked");
+    if (renamed.status === "public_field_locked") {
+      expect(renamed.disallowedFields).toEqual(["name"]);
+      expect(renamed.allowedFields).toEqual(["draftStartsAt"]);
+    }
   });
 
   it("clears the draft schedule when draftStartsAt is null", async () => {

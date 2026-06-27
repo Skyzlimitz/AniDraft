@@ -68,7 +68,9 @@ export interface LeagueSettingsView {
  * - `public_field_locked` — a public ("lobby") league PATCH named a field
  *                     outside the public allowlist (`name`/`pickTimerSeconds`).
  *                     Unlike `locked`, this never clears with a state change;
- *                     `allowedFields` says what a public league can ever edit.
+ *                     `allowedFields` says what the lobby can edit *from its
+ *                     current state* (e.g. only `draftStartsAt` once finalized),
+ *                     so a client can surface it without overstating what's open.
  * - `invalid_max_players` — `maxPlayers` was below the current member count.
  */
 export type UpdateLeagueSettingsResult =
@@ -180,6 +182,7 @@ export async function updateLeagueSettings(
     }
 
     const requested = requestedFields(input);
+    const editable = editableFieldsForLeague(league.visibility, league.status);
 
     // Public lobbies have a hard allowlist: only the player count and draft
     // start time are ever editable. A payload naming `name` or
@@ -187,7 +190,9 @@ export async function updateLeagueSettings(
     // change can ever open, so answer `public_field_locked` (→ 403) rather than
     // the transient `locked` (→ 409) used for lifecycle freezes. Checked before
     // the state rule so the 403 reason is the precise one (the field is *never*
-    // editable here), not a generic "locked from this state".
+    // editable here), not a generic "locked from this state". `allowedFields`
+    // reports the state-aware set (`editable`), so a finalized lobby's 403
+    // advertises only `draftStartsAt`, not the now-locked `maxPlayers`.
     if (league.visibility === "public") {
       const disallowed = requested.filter(
         (field) => !PUBLIC_EDITABLE_FIELDS.includes(field),
@@ -195,13 +200,12 @@ export async function updateLeagueSettings(
       if (disallowed.length > 0) {
         return {
           status: "public_field_locked",
-          allowedFields: PUBLIC_EDITABLE_FIELDS,
+          allowedFields: editable,
           disallowedFields: disallowed,
         };
       }
     }
 
-    const editable = editableFieldsForLeague(league.visibility, league.status);
     // Reject the request if it touches any field that isn't editable from this
     // state, rather than silently dropping the change — the caller asked for
     // something the league's lifecycle won't allow.

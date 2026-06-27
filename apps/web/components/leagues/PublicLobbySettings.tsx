@@ -5,6 +5,7 @@ import { MAX_LEAGUE_PLAYERS, MIN_LEAGUE_PLAYERS } from "@anidraft/shared";
 
 import { Button } from "@/components/ui/button";
 
+import { toDateTimeLocal } from "@/lib/leagues/datetime";
 import type {
   EditableField,
   LeagueSettingsView,
@@ -36,18 +37,6 @@ type FieldErrors = Record<string, string[] | undefined>;
 
 const inputClasses =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60";
-
-/** Format a `Date` for an `<input type="datetime-local">` value (local time). */
-function toDateTimeLocal(date: Date | null): string {
-  if (!date) return "";
-  // datetime-local wants `YYYY-MM-DDTHH:mm` in local time; build from local
-  // parts so the displayed value matches the viewer's wall clock.
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
-}
 
 export function PublicLobbySettings({
   league,
