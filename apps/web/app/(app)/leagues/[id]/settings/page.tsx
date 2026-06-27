@@ -57,7 +57,7 @@ export default async function LeagueSettingsPage({
     notFound();
   }
 
-  const { league, isCommissioner } = access;
+  const { league, isCommissioner, members } = access;
   const isPublic = league.visibility === "public";
   const editableFields = editableFieldsForLeague(
     league.visibility,
@@ -90,6 +90,7 @@ export default async function LeagueSettingsPage({
           league={league}
           canEdit={isCommissioner}
           editableFields={editableFields}
+          members={members}
         />
       )}
     </main>
