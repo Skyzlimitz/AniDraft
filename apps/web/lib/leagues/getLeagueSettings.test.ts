@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createDb, leagueMembers, leagues, users, type Db } from "@anidraft/db";
 
@@ -82,6 +83,35 @@ describe("getLeagueSettings", () => {
     expect(access?.league.name).toBe("Test League");
     expect(access?.league.memberCount).toBe(2);
     expect(access?.league.pickTimerSeconds).toBe(60);
+  });
+
+  it("returns the active roster with roles, oldest first", async () => {
+    const leagueId = await seedLeague();
+    const access = await getLeagueSettings(db, leagueId, commissionerId);
+
+    expect(access?.members).toEqual([
+      { userId: commissionerId, name: null, role: "commissioner" },
+      { userId: playerId, name: null, role: "player" },
+    ]);
+  });
+
+  it("excludes kicked members from the roster and the count", async () => {
+    const leagueId = await seedLeague();
+    await db
+      .update(leagueMembers)
+      .set({ kickedAt: new Date() })
+      .where(
+        and(
+          eq(leagueMembers.leagueId, leagueId),
+          eq(leagueMembers.userId, playerId),
+        ),
+      );
+
+    const access = await getLeagueSettings(db, leagueId, commissionerId);
+    expect(access?.members).toEqual([
+      { userId: commissionerId, name: null, role: "commissioner" },
+    ]);
+    expect(access?.league.memberCount).toBe(1);
   });
 
   it("flags a player as a member but not the commissioner", async () => {

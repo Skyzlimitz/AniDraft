@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 import { toDateTimeLocal } from "@/lib/leagues/datetime";
+import type { LeagueMemberView } from "@/lib/leagues/getLeagueSettings";
 import type { EditableField } from "@/lib/leagues/updateLeagueSettings";
 import type { LeagueSettingsView } from "@/lib/leagues/updateLeagueSettings";
 
@@ -38,16 +39,66 @@ export function PrivateLeagueSettings({
   league,
   canEdit,
   editableFields,
+  members,
 }: {
   league: LeagueSettingsView;
   canEdit: boolean;
   editableFields: readonly EditableField[];
+  members: LeagueMemberView[];
 }) {
   const [current, setCurrent] = useState<LeagueSettingsView>(league);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Member roster state lives here so a successful kick can drop the player from
+  // the list immediately (acceptance criterion), without a page reload.
+  const [roster, setRoster] = useState<LeagueMemberView[]>(members);
+  const [pendingKick, setPendingKick] = useState<LeagueMemberView | null>(null);
+  const [kicking, setKicking] = useState(false);
+  const [kickError, setKickError] = useState<string | null>(null);
+
+  // The commissioner can only remove players while the league is in setup; the
+  // server enforces this too (403 once finalized), this just hides the controls.
+  const canKick = canEdit && current.status === "setup";
+
+  async function handleKick(member: LeagueMemberView) {
+    setKicking(true);
+    setKickError(null);
+    try {
+      const res = await fetch(
+        `/api/leagues/${current.id}/members/${member.userId}`,
+        { method: "DELETE" },
+      );
+
+      if (res.status === 200 || res.status === 404) {
+        // 404 means the player is already gone (kicked elsewhere / never a
+        // member) — either way, reflect that they're not on the roster.
+        setRoster((prev) => prev.filter((m) => m.userId !== member.userId));
+        setPendingKick(null);
+        return;
+      }
+
+      if (res.status === 403) {
+        setKickError(
+          "You can't remove this player — the league may have moved past setup.",
+        );
+        return;
+      }
+
+      if (res.status === 401) {
+        setKickError("Your session expired. Please sign in again.");
+        return;
+      }
+
+      setKickError("Something went wrong removing this player.");
+    } catch {
+      setKickError("Network error — check your connection and try again.");
+    } finally {
+      setKicking(false);
+    }
+  }
 
   const canEditField = useMemo(() => {
     const set = new Set(editableFields);
@@ -161,134 +212,305 @@ export function PrivateLeagueSettings({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-      {!canEdit && (
-        <div
-          role="note"
-          className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
-        >
-          You&apos;re viewing this league&apos;s settings. Only the commissioner
-          can change them.
-        </div>
-      )}
+    <div className="space-y-10">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+        {!canEdit && (
+          <div
+            role="note"
+            className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            You&apos;re viewing this league&apos;s settings. Only the
+            commissioner can change them.
+          </div>
+        )}
 
-      {canEdit && !hasEditable && (
-        <div
-          role="note"
-          className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
-        >
-          {current.visibility === "public"
-            ? "Public league settings are fixed and can't be changed."
-            : "Settings are locked once the league moves past setup."}
-        </div>
-      )}
+        {canEdit && !hasEditable && (
+          <div
+            role="note"
+            className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            {current.visibility === "public"
+              ? "Public league settings are fixed and can't be changed."
+              : "Settings are locked once the league moves past setup."}
+          </div>
+        )}
 
-      {formError && (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive-foreground"
-        >
-          {formError}
-        </div>
-      )}
+        {formError && (
+          <div
+            role="alert"
+            className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive-foreground"
+          >
+            {formError}
+          </div>
+        )}
 
-      {saved && (
-        <div
-          role="status"
-          className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
-        >
-          Settings saved.
-        </div>
-      )}
+        {saved && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
+          >
+            Settings saved.
+          </div>
+        )}
 
-      <div className="space-y-2">
-        <label htmlFor="name" className="block text-sm font-medium">
-          League name
-        </label>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          defaultValue={current.name}
-          minLength={3}
-          maxLength={50}
-          disabled={!canEditField("name")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.name ? "true" : undefined}
+        <div className="space-y-2">
+          <label htmlFor="name" className="block text-sm font-medium">
+            League name
+          </label>
+          <input
+            id="name"
+            name="name"
+            type="text"
+            defaultValue={current.name}
+            minLength={3}
+            maxLength={50}
+            disabled={!canEditField("name")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.name ? "true" : undefined}
+          />
+          <FieldError errors={fieldErrors.name} />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="maxPlayers" className="block text-sm font-medium">
+            Max players
+          </label>
+          <input
+            id="maxPlayers"
+            name="maxPlayers"
+            type="number"
+            defaultValue={current.maxPlayers}
+            min={MIN_LEAGUE_PLAYERS}
+            max={MAX_LEAGUE_PLAYERS}
+            disabled={!canEditField("maxPlayers")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.maxPlayers ? "true" : undefined}
+          />
+          <p className="text-xs text-muted-foreground">
+            Between {MIN_LEAGUE_PLAYERS} and {MAX_LEAGUE_PLAYERS}, and never
+            below the current {current.memberCount}{" "}
+            {current.memberCount === 1 ? "member" : "members"}.
+          </p>
+          <FieldError errors={fieldErrors.maxPlayers} />
+        </div>
+
+        <div className="space-y-2">
+          <label
+            htmlFor="pickTimerSeconds"
+            className="block text-sm font-medium"
+          >
+            Pick timer (seconds)
+          </label>
+          <input
+            id="pickTimerSeconds"
+            name="pickTimerSeconds"
+            type="number"
+            defaultValue={current.pickTimerSeconds}
+            min={MIN_PICK_TIMER_SECONDS}
+            max={MAX_PICK_TIMER_SECONDS}
+            disabled={!canEditField("pickTimerSeconds")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.pickTimerSeconds ? "true" : undefined}
+          />
+          <p className="text-xs text-muted-foreground">
+            Between {MIN_PICK_TIMER_SECONDS} and {MAX_PICK_TIMER_SECONDS}{" "}
+            seconds.
+          </p>
+          <FieldError errors={fieldErrors.pickTimerSeconds} />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="draftStartsAt" className="block text-sm font-medium">
+            Draft start{" "}
+            <span className="font-normal text-muted-foreground">
+              (optional)
+            </span>
+          </label>
+          <input
+            id="draftStartsAt"
+            name="draftStartsAt"
+            type="datetime-local"
+            defaultValue={toDateTimeLocal(current.draftStartsAt)}
+            disabled={!canEditField("draftStartsAt")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.draftStartsAt ? "true" : undefined}
+          />
+          <p className="text-xs text-muted-foreground">
+            Leave blank to schedule the draft later.
+          </p>
+          <FieldError errors={fieldErrors.draftStartsAt} />
+        </div>
+
+        {hasEditable && (
+          <Button type="submit" disabled={submitting} className="w-full">
+            {submitting ? "Saving…" : "Save settings"}
+          </Button>
+        )}
+      </form>
+
+      {/* Roster is members-only: the page sends an empty list to non-members,
+          so there's nothing to render for them. */}
+      {roster.length > 0 && (
+        <MemberRoster
+          members={roster}
+          canKick={canKick}
+          onKick={(member) => {
+            setKickError(null);
+            setPendingKick(member);
+          }}
         />
-        <FieldError errors={fieldErrors.name} />
-      </div>
+      )}
 
-      <div className="space-y-2">
-        <label htmlFor="maxPlayers" className="block text-sm font-medium">
-          Max players
-        </label>
-        <input
-          id="maxPlayers"
-          name="maxPlayers"
-          type="number"
-          defaultValue={current.maxPlayers}
-          min={MIN_LEAGUE_PLAYERS}
-          max={MAX_LEAGUE_PLAYERS}
-          disabled={!canEditField("maxPlayers")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.maxPlayers ? "true" : undefined}
+      {pendingKick && (
+        <ConfirmKickDialog
+          member={pendingKick}
+          kicking={kicking}
+          error={kickError}
+          onCancel={() => {
+            if (kicking) return;
+            setPendingKick(null);
+            setKickError(null);
+          }}
+          onConfirm={() => handleKick(pendingKick)}
         />
-        <p className="text-xs text-muted-foreground">
-          Between {MIN_LEAGUE_PLAYERS} and {MAX_LEAGUE_PLAYERS}, and never below
-          the current {current.memberCount}{" "}
-          {current.memberCount === 1 ? "member" : "members"}.
+      )}
+    </div>
+  );
+}
+
+const memberLabel = (member: LeagueMemberView) =>
+  member.name?.trim() ? member.name : "Unnamed player";
+
+/**
+ * The active roster. Each non-commissioner row gets a Remove button when the
+ * viewer is the commissioner and the league is still in setup. The
+ * commissioner's own row is never removable (no self-kick).
+ */
+function MemberRoster({
+  members,
+  canKick,
+  onKick,
+}: {
+  members: LeagueMemberView[];
+  canKick: boolean;
+  onKick: (member: LeagueMemberView) => void;
+}) {
+  return (
+    <section className="space-y-3" aria-labelledby="members-heading">
+      <div className="space-y-1">
+        <h2 id="members-heading" className="text-lg font-semibold">
+          Members
+        </h2>
+        <p className="text-sm text-muted-foreground">
+          {members.length} {members.length === 1 ? "player" : "players"} in this
+          league.
         </p>
-        <FieldError errors={fieldErrors.maxPlayers} />
       </div>
 
-      <div className="space-y-2">
-        <label htmlFor="pickTimerSeconds" className="block text-sm font-medium">
-          Pick timer (seconds)
-        </label>
-        <input
-          id="pickTimerSeconds"
-          name="pickTimerSeconds"
-          type="number"
-          defaultValue={current.pickTimerSeconds}
-          min={MIN_PICK_TIMER_SECONDS}
-          max={MAX_PICK_TIMER_SECONDS}
-          disabled={!canEditField("pickTimerSeconds")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.pickTimerSeconds ? "true" : undefined}
-        />
-        <p className="text-xs text-muted-foreground">
-          Between {MIN_PICK_TIMER_SECONDS} and {MAX_PICK_TIMER_SECONDS} seconds.
-        </p>
-        <FieldError errors={fieldErrors.pickTimerSeconds} />
-      </div>
+      <ul className="divide-y divide-border rounded-md border border-border">
+        {members.map((member) => {
+          const isCommissioner = member.role === "commissioner";
+          return (
+            <li
+              key={member.userId}
+              className="flex items-center justify-between gap-3 px-4 py-3"
+            >
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium">
+                  {memberLabel(member)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {isCommissioner ? "Commissioner" : "Player"}
+                </span>
+              </span>
+              {canKick && !isCommissioner && (
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => onKick(member)}
+                >
+                  Remove
+                </Button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
+  );
+}
 
-      <div className="space-y-2">
-        <label htmlFor="draftStartsAt" className="block text-sm font-medium">
-          Draft start{" "}
-          <span className="font-normal text-muted-foreground">(optional)</span>
-        </label>
-        <input
-          id="draftStartsAt"
-          name="draftStartsAt"
-          type="datetime-local"
-          defaultValue={toDateTimeLocal(current.draftStartsAt)}
-          disabled={!canEditField("draftStartsAt")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.draftStartsAt ? "true" : undefined}
-        />
-        <p className="text-xs text-muted-foreground">
-          Leave blank to schedule the draft later.
-        </p>
-        <FieldError errors={fieldErrors.draftStartsAt} />
-      </div>
+/**
+ * Confirmation modal shown before a kick takes effect. Backed by a fixed
+ * overlay rather than a shadcn Dialog (not yet in `components/ui`); it traps
+ * nothing but is labelled for assistive tech and disables its controls while
+ * the request is in flight.
+ */
+function ConfirmKickDialog({
+  member,
+  kicking,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  member: LeagueMemberView;
+  kicking: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="confirm-kick-title"
+      onClick={onCancel}
+    >
+      <div
+        className="w-full max-w-sm space-y-4 rounded-lg border border-border bg-background p-6 shadow-lg"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="space-y-2">
+          <h2 id="confirm-kick-title" className="text-lg font-semibold">
+            Remove {memberLabel(member)}?
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            They&apos;ll be removed from the league and their seat freed up.
+            They can re-join later with an invite.
+          </p>
+        </div>
 
-      {hasEditable && (
-        <Button type="submit" disabled={submitting} className="w-full">
-          {submitting ? "Saving…" : "Save settings"}
-        </Button>
-      )}
-    </form>
+        {error && (
+          <div
+            role="alert"
+            className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive-foreground"
+          >
+            {error}
+          </div>
+        )}
+
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={kicking}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={kicking}
+          >
+            {kicking ? "Removing…" : "Remove player"}
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 
