@@ -348,14 +348,18 @@ export function PrivateLeagueSettings({
         )}
       </form>
 
-      <MemberRoster
-        members={roster}
-        canKick={canKick}
-        onKick={(member) => {
-          setKickError(null);
-          setPendingKick(member);
-        }}
-      />
+      {/* Roster is members-only: the page sends an empty list to non-members,
+          so there's nothing to render for them. */}
+      {roster.length > 0 && (
+        <MemberRoster
+          members={roster}
+          canKick={canKick}
+          onKick={(member) => {
+            setKickError(null);
+            setPendingKick(member);
+          }}
+        />
+      )}
 
       {pendingKick && (
         <ConfirmKickDialog

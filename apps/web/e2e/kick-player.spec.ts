@@ -30,8 +30,21 @@ test("commissioner kicks a player and they leave the member list", async ({
   const db = createClient({ url });
 
   // Seed a private setup league with the commissioner + one player.
+  //
+  // Idempotent: CI retries (`playwright.config.ts` sets `retries: 1`) re-run
+  // this body, and the test itself mutates the membership (the kick), so clear
+  // any prior fixture state first and use `INSERT OR IGNORE` for the user —
+  // otherwise a retry trips a UNIQUE constraint and masks the real failure.
   await db.execute({
-    sql: "INSERT INTO user (id, name, email) VALUES (?, ?, ?)",
+    sql: "DELETE FROM league_members WHERE league_id = ?",
+    args: [LEAGUE_ID],
+  });
+  await db.execute({
+    sql: "DELETE FROM leagues WHERE id = ?",
+    args: [LEAGUE_ID],
+  });
+  await db.execute({
+    sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
     args: [PLAYER.id, PLAYER.name, PLAYER.email],
   });
   // `created_at` / `updated_at` / `joined_at` are populated by drizzle's

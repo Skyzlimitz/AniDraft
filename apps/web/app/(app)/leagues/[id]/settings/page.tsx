@@ -57,7 +57,7 @@ export default async function LeagueSettingsPage({
     notFound();
   }
 
-  const { league, isCommissioner, members } = access;
+  const { league, isCommissioner, isMember, members } = access;
   const isPublic = league.visibility === "public";
   const editableFields = editableFieldsForLeague(
     league.visibility,
@@ -90,7 +90,10 @@ export default async function LeagueSettingsPage({
           league={league}
           canEdit={isCommissioner}
           editableFields={editableFields}
-          members={members}
+          // The roster (member names + roles) is for members only. A non-member
+          // can still reach this page and read league config, but must not see
+          // who's in the league, so we don't even send them the list.
+          members={isMember ? members : []}
         />
       )}
     </main>
