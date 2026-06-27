@@ -1,32 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import {
-  MAX_LEAGUE_PLAYERS,
-  MAX_PICK_TIMER_SECONDS,
-  MIN_LEAGUE_PLAYERS,
-  MIN_PICK_TIMER_SECONDS,
-} from "@anidraft/shared";
+import { MAX_LEAGUE_PLAYERS, MIN_LEAGUE_PLAYERS } from "@anidraft/shared";
 
 import { Button } from "@/components/ui/button";
 
 import { toDateTimeLocal } from "@/lib/leagues/datetime";
-import type { EditableField } from "@/lib/leagues/updateLeagueSettings";
-import type { LeagueSettingsView } from "@/lib/leagues/updateLeagueSettings";
+import type {
+  EditableField,
+  LeagueSettingsView,
+} from "@/lib/leagues/updateLeagueSettings";
 
 /**
- * Commissioner settings form for a private league (`PATCH /api/leagues/[id]`).
+ * Commissioner settings form for a **public ("lobby")** league
+ * (`PATCH /api/leagues/[id]`), the stripped counterpart to
+ * {@link PrivateLeagueSettings} (issue #34).
+ *
+ * Public lobbies run on uniform, non-negotiable rules: the pick timer is locked
+ * to 90s and the pool is fixed to the AniList tag, so this form exposes only the
+ * two fields a commissioner may ever tune — **max players** and **draft start**
+ * — and shows the locked rules as read-only context. As with the private form,
+ * which of the two inputs is enabled depends on the league's lifecycle state via
+ * `editableFields` (both in `setup`, only the draft start once `finalized`, none
+ * once drafting). The API re-validates and rejects anything outside this
+ * allowlist with a 403, so the disabled inputs here are UX, not the boundary.
  *
  * One component covers every viewer + state combination:
- * - A non-commissioner (`canEdit=false`) sees a fully read-only summary.
- * - The commissioner sees inputs, but only the fields editable from the
- *   league's current lifecycle state are enabled (`editableFields`). In `setup`
- *   that's all four; once `finalized`, only the draft start; once drafting or
- *   later, none (the form collapses to the read-only summary).
+ * - A non-commissioner (`canEdit=false`) sees a read-only summary.
+ * - The commissioner sees inputs, gated by `editableFields`.
  *
- * The form posts only the editable fields and mirrors the server's Zod
- * `fieldErrors` back onto the inputs; client-side `min`/`max` attributes are a
- * UX nicety, not the security boundary (the API re-validates).
+ * The form posts only the editable fields that actually changed and mirrors the
+ * server's Zod `fieldErrors` back onto the inputs.
  */
 
 type FieldErrors = Record<string, string[] | undefined>;
@@ -34,7 +38,7 @@ type FieldErrors = Record<string, string[] | undefined>;
 const inputClasses =
   "w-full rounded-md border border-input bg-background px-3 py-2 text-sm shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-60";
 
-export function PrivateLeagueSettings({
+export function PublicLobbySettings({
   league,
   canEdit,
   editableFields,
@@ -54,8 +58,8 @@ export function PrivateLeagueSettings({
     return (field: EditableField) => canEdit && set.has(field);
   }, [canEdit, editableFields]);
 
-  // Nothing is editable (read-only viewer, or a drafting+ league) → render the
-  // summary card with no form controls.
+  // Nothing is editable (read-only viewer, or a drafting+ lobby) → render the
+  // summary card with no submit button.
   const hasEditable = canEdit && editableFields.length > 0;
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -67,33 +71,20 @@ export function PrivateLeagueSettings({
 
     const data = new FormData(event.currentTarget);
 
-    // Send only the fields that are both editable from this state AND actually
-    // changed. Resending an untouched field is wasteful, and for `draftStartsAt`
-    // it's a correctness bug: a schedule that's still in the future when the
-    // page loads can lapse into the past before the commissioner saves an
-    // unrelated edit, and resending that now-past timestamp would trip the
-    // schema's future-only check and 400 the whole PATCH. A diff-only payload
-    // lets name/maxPlayers edits through regardless of a stale schedule.
+    // Send only the allowlisted fields that actually changed. A diff-only
+    // payload avoids resending a `draftStartsAt` that may have lapsed into the
+    // past since page load (which the schema's future-only check would 400).
     const payload: Record<string, unknown> = {};
-    if (canEditField("name")) {
-      const value = (data.get("name") as string).trim();
-      if (value !== current.name) payload.name = value;
-    }
     if (canEditField("maxPlayers")) {
       const value = Number(data.get("maxPlayers"));
       if (value !== current.maxPlayers) payload.maxPlayers = value;
-    }
-    if (canEditField("pickTimerSeconds")) {
-      const value = Number(data.get("pickTimerSeconds"));
-      if (value !== current.pickTimerSeconds) payload.pickTimerSeconds = value;
     }
     if (canEditField("draftStartsAt")) {
       const raw = (data.get("draftStartsAt") as string) || "";
       if (raw !== toDateTimeLocal(current.draftStartsAt)) {
         // Convert the timezone-less `datetime-local` value to a full ISO string
-        // (with the viewer's UTC offset applied) so the server stores the
-        // instant the commissioner intended, not the same wall-clock time read
-        // in the server's timezone. An empty input clears the schedule (`null`).
+        // so the server stores the instant the commissioner intended. An empty
+        // input clears the schedule (`null`).
         payload.draftStartsAt = raw === "" ? null : new Date(raw).toISOString();
       }
     }
@@ -134,15 +125,15 @@ export function PrivateLeagueSettings({
       }
 
       if (res.status === 403) {
-        setFormError("Only the commissioner can edit these settings.");
+        setFormError(
+          "Public lobbies only allow changing the player count and draft time.",
+        );
         return;
       }
 
       if (res.status === 409) {
         setFormError(
-          current.visibility === "public"
-            ? "Public league settings are fixed and can't be changed."
-            : "These settings are locked now that the league has moved past setup.",
+          "These settings are locked now that the draft has been finalized.",
         );
         return;
       }
@@ -167,7 +158,7 @@ export function PrivateLeagueSettings({
           role="note"
           className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
         >
-          You&apos;re viewing this league&apos;s settings. Only the commissioner
+          You&apos;re viewing this lobby&apos;s settings. Only the commissioner
           can change them.
         </div>
       )}
@@ -177,9 +168,7 @@ export function PrivateLeagueSettings({
           role="note"
           className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
         >
-          {current.visibility === "public"
-            ? "Public league settings are fixed and can't be changed."
-            : "Settings are locked once the league moves past setup."}
+          Lobby settings are locked once the draft starts.
         </div>
       )}
 
@@ -200,24 +189,6 @@ export function PrivateLeagueSettings({
           Settings saved.
         </div>
       )}
-
-      <div className="space-y-2">
-        <label htmlFor="name" className="block text-sm font-medium">
-          League name
-        </label>
-        <input
-          id="name"
-          name="name"
-          type="text"
-          defaultValue={current.name}
-          minLength={3}
-          maxLength={50}
-          disabled={!canEditField("name")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.name ? "true" : undefined}
-        />
-        <FieldError errors={fieldErrors.name} />
-      </div>
 
       <div className="space-y-2">
         <label htmlFor="maxPlayers" className="block text-sm font-medium">
@@ -243,27 +214,6 @@ export function PrivateLeagueSettings({
       </div>
 
       <div className="space-y-2">
-        <label htmlFor="pickTimerSeconds" className="block text-sm font-medium">
-          Pick timer (seconds)
-        </label>
-        <input
-          id="pickTimerSeconds"
-          name="pickTimerSeconds"
-          type="number"
-          defaultValue={current.pickTimerSeconds}
-          min={MIN_PICK_TIMER_SECONDS}
-          max={MAX_PICK_TIMER_SECONDS}
-          disabled={!canEditField("pickTimerSeconds")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.pickTimerSeconds ? "true" : undefined}
-        />
-        <p className="text-xs text-muted-foreground">
-          Between {MIN_PICK_TIMER_SECONDS} and {MAX_PICK_TIMER_SECONDS} seconds.
-        </p>
-        <FieldError errors={fieldErrors.pickTimerSeconds} />
-      </div>
-
-      <div className="space-y-2">
         <label htmlFor="draftStartsAt" className="block text-sm font-medium">
           Draft start{" "}
           <span className="font-normal text-muted-foreground">(optional)</span>
@@ -283,12 +233,33 @@ export function PrivateLeagueSettings({
         <FieldError errors={fieldErrors.draftStartsAt} />
       </div>
 
+      <LockedLobbyRules pickTimerSeconds={current.pickTimerSeconds} />
+
       {hasEditable && (
         <Button type="submit" disabled={submitting} className="w-full">
           {submitting ? "Saving…" : "Save settings"}
         </Button>
       )}
     </form>
+  );
+}
+
+/**
+ * Read-only summary of the lobby rules a commissioner can't change — the pick
+ * timer (fixed at 90s) and the pool (the AniList tag). Shown so the page makes
+ * clear *why* only two fields are editable, without offering them as inputs.
+ */
+function LockedLobbyRules({ pickTimerSeconds }: { pickTimerSeconds: number }) {
+  return (
+    <div className="space-y-2 rounded-md border border-border bg-muted/40 px-4 py-3">
+      <p className="text-sm font-medium">Fixed lobby rules</p>
+      <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <dt>Pick timer</dt>
+        <dd>{pickTimerSeconds}s (locked)</dd>
+        <dt>Pool</dt>
+        <dd>AniList tag (locked)</dd>
+      </dl>
+    </div>
   );
 }
 
