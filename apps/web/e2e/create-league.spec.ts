@@ -1,6 +1,5 @@
-import { createClient } from "@libsql/client";
-
 import { expect, test } from "./auth";
+import { e2eDb } from "./seed";
 import { TEST_USER } from "./session";
 
 /**
@@ -39,8 +38,7 @@ test("commissioner creates a private league and gets a working invite code", asy
   });
 
   // The issue's artifact also calls for confirming state=setup in the DB.
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  const db = createClient({ url });
+  const db = e2eDb();
   try {
     const result = await db.execute({
       sql: "SELECT status, visibility FROM leagues WHERE commissioner_id = ? ORDER BY created_at DESC LIMIT 1",

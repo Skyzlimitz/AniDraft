@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   screenshot:
-    name: Build & Screenshot landing page
+    name: Build & Screenshot web pages
     runs-on: ubuntu-latest
 
     env:
@@ -53,14 +53,17 @@ jobs:
       - name: Build web app
         run: pnpm --filter web build
 
-      - name: Capture screenshot
+      - name: Capture screenshots
         run: pnpm --filter web exec playwright test
 
-      - name: Upload screenshot artifact
+      - name: Upload screenshot artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: landing-screenshot
+          # Carries every capture the e2e specs write to apps/web/screenshots/:
+          # the public landing page plus the authed flows (create/join league,
+          # lobbies, and the public-vs-private league settings forms).
+          name: web-screenshots
           path: apps/web/screenshots/
           if-no-files-found: warn
 

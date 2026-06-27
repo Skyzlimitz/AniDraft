@@ -30,6 +30,11 @@ export default defineConfig({
   reporter: process.env.CI ? [["html", { open: "never" }], ["list"]] : "list",
   use: {
     baseURL: "http://localhost:3000",
+    // Pin the browser timezone so `datetime-local` inputs (e.g. the seeded
+    // draft start on the settings pages) render the same wall-clock value on
+    // every machine, keeping screenshots deterministic. The web server gets a
+    // matching `TZ=UTC` below so its SSR render agrees with the client.
+    timezoneId: "UTC",
   },
   projects: [
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
@@ -43,6 +48,6 @@ export default defineConfig({
     // (called by the route-protection proxy) would reject every request with
     // UntrustedHost and the proxy could never redirect. Vercel sets this
     // implicitly in real deploys; the test server needs it set explicitly.
-    env: { AUTH_TRUST_HOST: "true" },
+    env: { AUTH_TRUST_HOST: "true", TZ: "UTC" },
   },
 });
