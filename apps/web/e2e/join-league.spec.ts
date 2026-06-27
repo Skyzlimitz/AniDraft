@@ -1,6 +1,5 @@
-import { createClient } from "@libsql/client";
-
 import { expect, test } from "./auth";
+import { e2eDb, seedLeague } from "./seed";
 import { TEST_USER } from "./session";
 
 /**
@@ -18,58 +17,24 @@ import { TEST_USER } from "./session";
 
 const OWNER = {
   id: "e2e-join-owner",
+  name: "Join Owner",
   email: "join-owner@anidraft.test",
 } as const;
 
 const LEAGUE_ID = "e2e-join-league";
 const INVITE_CODE = "JOINME23";
 
-function e2eDb() {
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  return createClient({ url });
-}
-
 test.beforeAll(async () => {
-  const db = e2eDb();
-  const now = Date.now();
-  try {
-    // Idempotent: `beforeAll` re-runs on a Playwright retry, and the join itself
-    // adds a membership row, so clear any prior state for this fixture first.
-    // `INSERT OR IGNORE` on the owner keeps a retry from tripping the unique
-    // email constraint.
-    await db.execute({
-      sql: "DELETE FROM league_members WHERE league_id = ?",
-      args: [LEAGUE_ID],
-    });
-    await db.execute({
-      sql: "DELETE FROM invite_codes WHERE code = ?",
-      args: [INVITE_CODE],
-    });
-    await db.execute({
-      sql: "DELETE FROM leagues WHERE id = ?",
-      args: [LEAGUE_ID],
-    });
-    await db.execute({
-      sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
-      args: [OWNER.id, "Join Owner", OWNER.email],
-    });
-    await db.execute({
-      sql: `INSERT INTO leagues
-              (id, name, visibility, commissioner_id, season, season_year, max_players, status, created_at, updated_at)
-            VALUES (?, ?, 'private', ?, 'SPRING', 2026, 8, 'setup', ?, ?)`,
-      args: [LEAGUE_ID, "E2E Join League", OWNER.id, now, now],
-    });
-    await db.execute({
-      sql: "INSERT INTO league_members (league_id, user_id, role, joined_at) VALUES (?, ?, 'commissioner', ?)",
-      args: [LEAGUE_ID, OWNER.id, now],
-    });
-    await db.execute({
-      sql: "INSERT INTO invite_codes (code, league_id, uses, created_at) VALUES (?, ?, 0, ?)",
-      args: [INVITE_CODE, LEAGUE_ID, now],
-    });
-  } finally {
-    db.close();
-  }
+  // A second commissioner owns a private league + invite code; `TEST_USER` (who
+  // isn't a member) then joins it. Idempotent, so a Playwright retry re-running
+  // `beforeAll` after the join added a membership row starts clean.
+  await seedLeague({
+    id: LEAGUE_ID,
+    name: "E2E Join League",
+    visibility: "private",
+    commissioner: OWNER,
+    inviteCode: INVITE_CODE,
+  });
 });
 
 test("a signed-in user joins a private league via its invite code", async ({

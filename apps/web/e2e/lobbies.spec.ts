@@ -1,6 +1,5 @@
-import { createClient } from "@libsql/client";
-
 import { expect, test } from "./auth";
+import { e2eDb, seedLeague } from "./seed";
 import { TEST_USER } from "./session";
 
 /**
@@ -19,48 +18,23 @@ import { TEST_USER } from "./session";
 
 const OWNER = {
   id: "e2e-lobby-owner",
+  name: "Lobby Owner",
   email: "lobby-owner@anidraft.test",
 } as const;
 
 const LEAGUE_ID = "e2e-public-lobby";
 const LEAGUE_NAME = "E2E Open Lobby";
 
-function e2eDb() {
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  return createClient({ url });
-}
-
 test.beforeAll(async () => {
-  const db = e2eDb();
-  const now = Date.now();
-  try {
-    // Idempotent: `beforeAll` re-runs on a Playwright retry, and the join adds a
-    // membership row, so clear any prior state for this fixture first.
-    await db.execute({
-      sql: "DELETE FROM league_members WHERE league_id = ?",
-      args: [LEAGUE_ID],
-    });
-    await db.execute({
-      sql: "DELETE FROM leagues WHERE id = ?",
-      args: [LEAGUE_ID],
-    });
-    await db.execute({
-      sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
-      args: [OWNER.id, "Lobby Owner", OWNER.email],
-    });
-    await db.execute({
-      sql: `INSERT INTO leagues
-              (id, name, visibility, commissioner_id, season, season_year, max_players, status, created_at, updated_at)
-            VALUES (?, ?, 'public', ?, 'SPRING', 2026, 8, 'setup', ?, ?)`,
-      args: [LEAGUE_ID, LEAGUE_NAME, OWNER.id, now, now],
-    });
-    await db.execute({
-      sql: "INSERT INTO league_members (league_id, user_id, role, joined_at) VALUES (?, ?, 'commissioner', ?)",
-      args: [LEAGUE_ID, OWNER.id, now],
-    });
-  } finally {
-    db.close();
-  }
+  // A second commissioner owns a public league (no invite code — public leagues
+  // are joined straight from the lobby by id); `TEST_USER` then joins it.
+  // Idempotent, so a retry re-running `beforeAll` after the join starts clean.
+  await seedLeague({
+    id: LEAGUE_ID,
+    name: LEAGUE_NAME,
+    visibility: "public",
+    commissioner: OWNER,
+  });
 });
 
 test("a signed-in user browses the lobby and joins a public league", async ({

@@ -1,6 +1,5 @@
-import { createClient } from "@libsql/client";
-
 import { expect, test } from "./auth";
+import { seedLeague } from "./seed";
 import { TEST_USER } from "./session";
 
 /**
@@ -20,10 +19,10 @@ import { TEST_USER } from "./session";
  *
  * ## Why seed in the test body (not `beforeAll`)
  *
- * Seeding happens inside the test, mirroring `kick-player.spec.ts`, rather than
- * a file-scope `test.beforeAll`. Both leagues are independent fixtures with no
- * shared setup to hoist, and keeping the seed inline sidesteps the
- * `base.extend()`-derived `test` hook quirk noted on the issue.
+ * Seeding happens inside the test (via the shared {@link seedLeague} helper)
+ * rather than a file-scope `test.beforeAll`. Both leagues are independent
+ * fixtures with no shared setup to hoist, and keeping the seed inline sidesteps
+ * the `base.extend()`-derived `test` hook quirk noted on the issue.
  *
  * ## Determinism
  *
@@ -49,59 +48,19 @@ const PRIVATE_LEAGUE = {
 // the UTC timezone pin this shows as `2026-09-01T18:00` in both inputs.
 const DRAFT_STARTS_AT_MS = Date.UTC(2026, 8, 1, 18, 0, 0); // 2026-09-01T18:00:00Z
 
-function e2eDb() {
-  const url = process.env.DATABASE_URL ?? "file:./dev.db";
-  return createClient({ url });
-}
-
-/**
- * Seed one league owned by the e2e commissioner in `setup` state. Idempotent so
- * a Playwright retry re-running the test body starts from a clean fixture.
- */
-async function seedLeague(
-  league: { id: string; name: string },
-  visibility: "public" | "private",
-): Promise<void> {
-  const db = e2eDb();
-  const now = Date.now();
-  try {
-    await db.execute({
-      sql: "DELETE FROM league_members WHERE league_id = ?",
-      args: [league.id],
-    });
-    await db.execute({
-      sql: "DELETE FROM leagues WHERE id = ?",
-      args: [league.id],
-    });
-    await db.execute({
-      sql: `INSERT INTO leagues
-              (id, name, visibility, commissioner_id, season, season_year,
-               max_players, pick_timer_seconds, draft_starts_at, status,
-               created_at, updated_at)
-            VALUES (?, ?, ?, ?, 'SPRING', 2026, 8, 90, ?, 'setup', ?, ?)`,
-      args: [
-        league.id,
-        league.name,
-        visibility,
-        TEST_USER.id,
-        DRAFT_STARTS_AT_MS,
-        now,
-        now,
-      ],
-    });
-    await db.execute({
-      sql: "INSERT INTO league_members (league_id, user_id, role, joined_at) VALUES (?, ?, 'commissioner', ?)",
-      args: [league.id, TEST_USER.id, now],
-    });
-  } finally {
-    db.close();
-  }
-}
-
 test("commissioner sees the stripped public-lobby settings form", async ({
   page,
 }) => {
-  await seedLeague(PUBLIC_LEAGUE, "public");
+  // `TEST_USER` (seeded by global-setup) commissions both leagues, so the page
+  // renders the editable form. `pick_timer_seconds: 90` matches the value the
+  // locked-rules panel renders, keeping the public screenshot self-consistent.
+  await seedLeague({
+    ...PUBLIC_LEAGUE,
+    visibility: "public",
+    commissioner: { id: TEST_USER.id },
+    pickTimerSeconds: 90,
+    draftStartsAtMs: DRAFT_STARTS_AT_MS,
+  });
 
   await page.goto(`/leagues/${PUBLIC_LEAGUE.id}/settings`);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
@@ -125,7 +84,13 @@ test("commissioner sees the stripped public-lobby settings form", async ({
 test("commissioner sees the full private-league settings form", async ({
   page,
 }) => {
-  await seedLeague(PRIVATE_LEAGUE, "private");
+  await seedLeague({
+    ...PRIVATE_LEAGUE,
+    visibility: "private",
+    commissioner: { id: TEST_USER.id },
+    pickTimerSeconds: 90,
+    draftStartsAtMs: DRAFT_STARTS_AT_MS,
+  });
 
   await page.goto(`/leagues/${PRIVATE_LEAGUE.id}/settings`);
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
