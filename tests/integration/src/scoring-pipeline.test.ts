@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { calculateWeeklyScore, type ScoringResult } from "@anidraft/scoring";
 import { fetchSeasonAnime, type AniListMedia } from "@anidraft/anilist";
 
@@ -13,6 +13,10 @@ import { fetchSeasonAnime, type AniListMedia } from "@anidraft/anilist";
  * NOTE: `calculateWeeklyScore` is currently a stub that returns 0. These
  * assertions check the *contract* (types/shape), not a specific formula, so
  * they keep passing once Issue #59 lands the real implementation.
+ *
+ * `fetchSeasonAnime` now makes a real GraphQL request (issue #36), so the
+ * season-fetch test stubs `fetch` rather than hitting the network — keeping the
+ * boundary it exercises (AniList parsing -> scoring) hermetic.
  */
 
 function mediaToScoringInput(media: AniListMedia) {
@@ -43,6 +47,10 @@ const sampleMedia: AniListMedia = {
 };
 
 describe("scoring pipeline (anilist media -> scoring)", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("maps AniList media into a scorable input and returns a valid result", () => {
     const input = mediaToScoringInput(sampleMedia);
     const result: ScoringResult = calculateWeeklyScore(input);
@@ -67,10 +75,29 @@ describe("scoring pipeline (anilist media -> scoring)", () => {
   });
 
   it("scores every anime returned by a season fetch", async () => {
-    // `fetchSeasonAnime` is a stub returning [], but the pipeline must be able
-    // to consume whatever it returns without blowing up.
+    // Stub the network: `fetchSeasonAnime` parses this AniList `Page` shape, and
+    // the pipeline must score every media it yields. One page (hasNextPage:
+    // false) keeps the fetch to a single request.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        json: async () => ({
+          data: {
+            Page: {
+              pageInfo: { currentPage: 1, hasNextPage: false },
+              media: [sampleMedia, { ...sampleMedia, id: 2 }],
+            },
+          },
+        }),
+      })),
+    );
+
     const season = await fetchSeasonAnime("SPRING", 2026);
     expect(Array.isArray(season)).toBe(true);
+    expect(season).toHaveLength(2);
 
     const scores = season.map((media) =>
       calculateWeeklyScore(mediaToScoringInput(media)),
