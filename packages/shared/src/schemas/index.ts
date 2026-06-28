@@ -130,6 +130,73 @@ export type UpdateLeagueSettingsInput = z.infer<
   typeof updateLeagueSettingsSchema
 >;
 
+/**
+ * Upper bound on how many shows a commissioner may manually add to the pool
+ * (issue #36). The auto-fetched season pool is already dozens of shows; manual
+ * additions are for the handful the AniList season filter missed, so this cap is
+ * generous but keeps a single PUT from writing an unbounded number of rows.
+ */
+export const MAX_POOL_ADDITIONS = 50;
+
+/**
+ * One manually-added show in a pool-override payload. The client echoes back the
+ * `title`/`coverImage` it received from the editor's GET so an added show — one
+ * that is *not* in the AniList season fetch — can be rendered later without a
+ * second lookup. `anilistId` identifies the show; `title` is required (a show
+ * with no title is unrenderable); `coverImage` is optional (AniList may lack
+ * art) and accepted as a URL or `null`.
+ */
+export const poolAdditionSchema = z.object({
+  anilistId: z
+    .number()
+    .int("AniList id must be a whole number")
+    .positive("AniList id must be positive"),
+  title: z
+    .string()
+    .trim()
+    .min(1, "Title is required")
+    .max(500, "Title is too long"),
+  coverImage: z
+    .string()
+    .trim()
+    .url("Cover image must be a URL")
+    .nullable()
+    .default(null),
+});
+
+export type PoolAdditionInput = z.infer<typeof poolAdditionSchema>;
+
+/**
+ * Body for `PUT /api/leagues/:id/pool` — the commissioner's full override set
+ * for a private league's draft pool (issue #36). This is a **replace**, not a
+ * patch: the two arrays together describe the entire override state, so the
+ * domain layer can rebuild it transactionally and a removed exclusion/addition
+ * simply isn't present. Both default to empty, so an "all overrides cleared"
+ * save is a `{}` (or `{ exclusions: [], additions: [] }`) body.
+ *
+ * - `exclusions` — AniList ids of auto-pool shows the commissioner removed.
+ * - `additions`  — shows the commissioner added that the season fetch missed.
+ */
+export const updatePoolOverridesSchema = z.object({
+  exclusions: z
+    .array(
+      z
+        .number()
+        .int("AniList id must be a whole number")
+        .positive("AniList id must be positive"),
+    )
+    .max(500, "Too many exclusions")
+    .default([]),
+  additions: z
+    .array(poolAdditionSchema)
+    .max(MAX_POOL_ADDITIONS, `At most ${MAX_POOL_ADDITIONS} added shows`)
+    .default([]),
+});
+
+export type UpdatePoolOverridesInput = z.infer<
+  typeof updatePoolOverridesSchema
+>;
+
 export const joinLeagueSchema = z.object({
   // Normalize before validating: codes are generated from an uppercase-only
   // alphabet, so a hand-typed `join2345` or one with stray surrounding

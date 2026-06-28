@@ -9,6 +9,8 @@ import {
   joinLeagueSchema,
   joinPublicLeagueSchema,
   updateLeagueSettingsSchema,
+  updatePoolOverridesSchema,
+  MAX_POOL_ADDITIONS,
 } from "./index.js";
 
 /**
@@ -193,5 +195,56 @@ describe("updateLeagueSettingsSchema", () => {
   it("allows clearing the draft start with null", () => {
     const parsed = updateLeagueSettingsSchema.parse({ draftStartsAt: null });
     expect(parsed.draftStartsAt).toBeNull();
+  });
+});
+
+describe("updatePoolOverridesSchema", () => {
+  it("defaults both arrays to empty for a {} body", () => {
+    const parsed = updatePoolOverridesSchema.parse({});
+    expect(parsed.exclusions).toEqual([]);
+    expect(parsed.additions).toEqual([]);
+  });
+
+  it("accepts exclusions and additions, defaulting a missing cover to null", () => {
+    const parsed = updatePoolOverridesSchema.parse({
+      exclusions: [1, 2],
+      additions: [{ anilistId: 99, title: "Added" }],
+    });
+    expect(parsed.exclusions).toEqual([1, 2]);
+    expect(parsed.additions[0]).toEqual({
+      anilistId: 99,
+      title: "Added",
+      coverImage: null,
+    });
+  });
+
+  it("rejects a non-integer exclusion id", () => {
+    expect(() =>
+      updatePoolOverridesSchema.parse({ exclusions: [1.5] }),
+    ).toThrow();
+  });
+
+  it("rejects an addition with an empty title", () => {
+    expect(() =>
+      updatePoolOverridesSchema.parse({
+        additions: [{ anilistId: 1, title: "" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects an addition cover image that isn't a URL", () => {
+    expect(() =>
+      updatePoolOverridesSchema.parse({
+        additions: [{ anilistId: 1, title: "X", coverImage: "not-a-url" }],
+      }),
+    ).toThrow();
+  });
+
+  it("rejects more additions than the cap", () => {
+    const additions = Array.from({ length: MAX_POOL_ADDITIONS + 1 }, (_, i) => ({
+      anilistId: i + 1,
+      title: `Show ${i}`,
+    }));
+    expect(() => updatePoolOverridesSchema.parse({ additions })).toThrow();
   });
 });

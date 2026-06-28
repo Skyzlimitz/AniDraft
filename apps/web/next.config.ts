@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       { protocol: "https", hostname: "lh3.googleusercontent.com" },
       { protocol: "https", hostname: "cdn.discordapp.com" },
+      // AniList cover art (the pool editor's show thumbnails, issue #36).
+      { protocol: "https", hostname: "s4.anilist.co" },
     ],
   },
 };
