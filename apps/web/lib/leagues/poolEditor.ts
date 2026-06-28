@@ -126,6 +126,45 @@ async function gatePoolEditor(
   return { ok: true, league };
 }
 
+/** A pool override row, narrowed to the fields reconciliation needs. */
+export interface PoolOverrideKind {
+  anilistId: number;
+  kind: "exclusion" | "addition";
+}
+
+/**
+ * The set of AniList ids in a league's **effective draftable pool**:
+ * `(auto − exclusions) ∪ additions`. This is the single source of truth for what
+ * "draftable" means — both {@link getPoolEditor} (to flag/append entries for the
+ * editor) and the finalize pool-size gate (`finalizeLeague`, via `.size`) derive
+ * from it, so the count the commissioner sees and the count finalize enforces
+ * can't drift.
+ *
+ * A show is draftable when it's in the auto pool and not excluded, or it's a
+ * manual addition. Additions are unioned in unconditionally: a duplicate of a
+ * (non-excluded) auto show collapses in the Set, and `updatePoolOverrides`
+ * already guarantees an id is never both added and excluded, so "addition wins"
+ * needs no special case here.
+ */
+export function effectivePoolIds(
+  autoPool: readonly { anilistId: number }[],
+  overrides: readonly PoolOverrideKind[],
+): Set<number> {
+  const excluded = new Set(
+    overrides
+      .filter((row) => row.kind === "exclusion")
+      .map((row) => row.anilistId),
+  );
+  const ids = new Set<number>();
+  for (const show of autoPool) {
+    if (!excluded.has(show.anilistId)) ids.add(show.anilistId);
+  }
+  for (const row of overrides) {
+    if (row.kind === "addition") ids.add(row.anilistId);
+  }
+  return ids;
+}
+
 /**
  * Read the pool editor view for `leagueId` on behalf of `userId`, reconciling
  * the live AniList season pool (via `fetchSeasonPool`) with the stored overrides.
@@ -148,17 +187,15 @@ export async function getPoolEditor(
     .from(poolOverrides)
     .where(eq(poolOverrides.leagueId, leagueId));
 
-  const excludedIds = new Set(
-    overrides
-      .filter((row) => row.kind === "exclusion")
-      .map((row) => row.anilistId),
-  );
+  // One reconciliation, shared with finalize's pool-size gate: an auto show is
+  // draftable (not excluded) iff its id survives into the effective pool.
+  const draftableIds = effectivePoolIds(autoPool, overrides);
   const autoPoolIds = new Set(autoPool.map((show) => show.anilistId));
 
   const entries: PoolEntry[] = autoPool.map((show) => ({
     ...show,
     source: "auto",
-    excluded: excludedIds.has(show.anilistId),
+    excluded: !draftableIds.has(show.anilistId),
   }));
 
   // Append manual additions, skipping any that the season fetch has since

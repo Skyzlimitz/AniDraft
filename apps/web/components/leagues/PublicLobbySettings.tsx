@@ -4,8 +4,10 @@ import { useMemo, useState } from "react";
 import { MAX_LEAGUE_PLAYERS, MIN_LEAGUE_PLAYERS } from "@anidraft/shared";
 
 import { Button } from "@/components/ui/button";
+import { FinalizeLeagueControl } from "@/components/leagues/FinalizeLeagueControl";
 
 import { toDateTimeLocal } from "@/lib/leagues/datetime";
+import { FINALIZED_EDITABLE_FIELDS } from "@/lib/leagues/editableFields";
 import type {
   EditableField,
   LeagueSettingsView,
@@ -48,19 +50,34 @@ export function PublicLobbySettings({
   editableFields: readonly EditableField[];
 }) {
   const [current, setCurrent] = useState<LeagueSettingsView>(league);
+  // Editable set in state so an in-page finalize can narrow it to just the draft
+  // time without a reload; seeded from the server-computed prop.
+  const [editable, setEditable] =
+    useState<readonly EditableField[]>(editableFields);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const canEditField = useMemo(() => {
-    const set = new Set(editableFields);
+    const set = new Set(editable);
     return (field: EditableField) => canEdit && set.has(field);
-  }, [canEdit, editableFields]);
+  }, [canEdit, editable]);
 
   // Nothing is editable (read-only viewer, or a drafting+ lobby) → render the
   // summary card with no submit button.
-  const hasEditable = canEdit && editableFields.length > 0;
+  const hasEditable = canEdit && editable.length > 0;
+
+  // Once finalized, lock everything but the draft time and reflect the new
+  // status in place; the server has already made this authoritative.
+  function handleFinalized(finalized: LeagueSettingsView) {
+    setCurrent((prev) => ({ ...prev, ...finalized }));
+    setEditable(FINALIZED_EDITABLE_FIELDS);
+  }
+
+  // The finalize control is the commissioner's, and only while the lobby is
+  // still in setup.
+  const canFinalize = canEdit && current.status === "setup";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -152,95 +169,116 @@ export function PublicLobbySettings({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-      {!canEdit && (
-        <div
-          role="note"
-          className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
-        >
-          You&apos;re viewing this lobby&apos;s settings. Only the commissioner
-          can change them.
-        </div>
-      )}
+    <div className="space-y-10">
+      <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+        {!canEdit && (
+          <div
+            role="note"
+            className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            You&apos;re viewing this lobby&apos;s settings. Only the
+            commissioner can change them.
+          </div>
+        )}
 
-      {canEdit && !hasEditable && (
-        <div
-          role="note"
-          className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
-        >
-          Lobby settings are locked once the draft starts.
-        </div>
-      )}
+        {canEdit && !hasEditable && (
+          <div
+            role="note"
+            className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            Lobby settings are locked once the draft starts.
+          </div>
+        )}
 
-      {formError && (
-        <div
-          role="alert"
-          className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive-foreground"
-        >
-          {formError}
-        </div>
-      )}
+        {canEdit && current.status === "finalized" && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
+          >
+            Lobby finalized. The roster and pool are locked — only the draft
+            start time can still be changed.
+          </div>
+        )}
 
-      {saved && (
-        <div
-          role="status"
-          className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
-        >
-          Settings saved.
-        </div>
-      )}
+        {formError && (
+          <div
+            role="alert"
+            className="rounded-md border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive-foreground"
+          >
+            {formError}
+          </div>
+        )}
 
-      <div className="space-y-2">
-        <label htmlFor="maxPlayers" className="block text-sm font-medium">
-          Max players
-        </label>
-        <input
-          id="maxPlayers"
-          name="maxPlayers"
-          type="number"
-          defaultValue={current.maxPlayers}
-          min={MIN_LEAGUE_PLAYERS}
-          max={MAX_LEAGUE_PLAYERS}
-          disabled={!canEditField("maxPlayers")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.maxPlayers ? "true" : undefined}
+        {saved && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
+          >
+            Settings saved.
+          </div>
+        )}
+
+        <div className="space-y-2">
+          <label htmlFor="maxPlayers" className="block text-sm font-medium">
+            Max players
+          </label>
+          <input
+            id="maxPlayers"
+            name="maxPlayers"
+            type="number"
+            defaultValue={current.maxPlayers}
+            min={MIN_LEAGUE_PLAYERS}
+            max={MAX_LEAGUE_PLAYERS}
+            disabled={!canEditField("maxPlayers")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.maxPlayers ? "true" : undefined}
+          />
+          <p className="text-xs text-muted-foreground">
+            Between {MIN_LEAGUE_PLAYERS} and {MAX_LEAGUE_PLAYERS}, and never
+            below the current {current.memberCount}{" "}
+            {current.memberCount === 1 ? "member" : "members"}.
+          </p>
+          <FieldError errors={fieldErrors.maxPlayers} />
+        </div>
+
+        <div className="space-y-2">
+          <label htmlFor="draftStartsAt" className="block text-sm font-medium">
+            Draft start{" "}
+            <span className="font-normal text-muted-foreground">
+              (optional)
+            </span>
+          </label>
+          <input
+            id="draftStartsAt"
+            name="draftStartsAt"
+            type="datetime-local"
+            defaultValue={toDateTimeLocal(current.draftStartsAt)}
+            disabled={!canEditField("draftStartsAt")}
+            className={inputClasses}
+            aria-invalid={fieldErrors.draftStartsAt ? "true" : undefined}
+          />
+          <p className="text-xs text-muted-foreground">
+            Leave blank to schedule the draft later.
+          </p>
+          <FieldError errors={fieldErrors.draftStartsAt} />
+        </div>
+
+        <LockedLobbyRules pickTimerSeconds={current.pickTimerSeconds} />
+
+        {hasEditable && (
+          <Button type="submit" disabled={submitting} className="w-full">
+            {submitting ? "Saving…" : "Save settings"}
+          </Button>
+        )}
+      </form>
+
+      {canFinalize && (
+        <FinalizeLeagueControl
+          leagueId={current.id}
+          onFinalized={handleFinalized}
         />
-        <p className="text-xs text-muted-foreground">
-          Between {MIN_LEAGUE_PLAYERS} and {MAX_LEAGUE_PLAYERS}, and never below
-          the current {current.memberCount}{" "}
-          {current.memberCount === 1 ? "member" : "members"}.
-        </p>
-        <FieldError errors={fieldErrors.maxPlayers} />
-      </div>
-
-      <div className="space-y-2">
-        <label htmlFor="draftStartsAt" className="block text-sm font-medium">
-          Draft start{" "}
-          <span className="font-normal text-muted-foreground">(optional)</span>
-        </label>
-        <input
-          id="draftStartsAt"
-          name="draftStartsAt"
-          type="datetime-local"
-          defaultValue={toDateTimeLocal(current.draftStartsAt)}
-          disabled={!canEditField("draftStartsAt")}
-          className={inputClasses}
-          aria-invalid={fieldErrors.draftStartsAt ? "true" : undefined}
-        />
-        <p className="text-xs text-muted-foreground">
-          Leave blank to schedule the draft later.
-        </p>
-        <FieldError errors={fieldErrors.draftStartsAt} />
-      </div>
-
-      <LockedLobbyRules pickTimerSeconds={current.pickTimerSeconds} />
-
-      {hasEditable && (
-        <Button type="submit" disabled={submitting} className="w-full">
-          {submitting ? "Saving…" : "Save settings"}
-        </Button>
       )}
-    </form>
+    </div>
   );
 }
 
