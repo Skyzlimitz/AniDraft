@@ -29,7 +29,14 @@ import { TEST_USER } from "./session";
  * stays valid.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
+const MIGRATIONS = [
+  "0000_true_nighthawk.sql",
+  "0001_tough_talkback.sql",
+  "0002_flashy_inhumans.sql",
+  // 0003 adds the app-specific `user` columns; required because drizzle now
+  // emits `created_at` (its $defaultFn) on every user INSERT.
+  "0003_tense_masque.sql",
+];
 
 export default async function globalSetup(): Promise<void> {
   const url = process.env.DATABASE_URL ?? "file:./dev.db";

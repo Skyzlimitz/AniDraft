@@ -27,7 +27,14 @@ import {
  * private league — a unique invite code, against the real migrated schema.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
+const MIGRATIONS = [
+  "0000_true_nighthawk.sql",
+  "0001_tough_talkback.sql",
+  "0002_flashy_inhumans.sql",
+  // 0003 adds the app-specific `user` columns; required because drizzle now
+  // emits `created_at` (its $defaultFn) on every user INSERT.
+  "0003_tense_masque.sql",
+];
 
 /** Mirrors `apps/web/lib/leagues/createLeague.ts`. */
 const PUBLIC_PICK_TIMER_SECONDS = 90;

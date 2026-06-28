@@ -33,7 +33,14 @@ import {
  * empty DB. `updateLeagueSettings` runs inside a transaction.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
+const MIGRATIONS = [
+  "0000_true_nighthawk.sql",
+  "0001_tough_talkback.sql",
+  "0002_flashy_inhumans.sql",
+  // 0003 adds the app-specific `user` columns; required because drizzle now
+  // emits `created_at` (its $defaultFn) on every user INSERT.
+  "0003_tense_masque.sql",
+];
 
 async function applyMigrations(db: Db): Promise<void> {
   await db.run("PRAGMA foreign_keys = ON");

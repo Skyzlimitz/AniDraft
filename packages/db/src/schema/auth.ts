@@ -1,10 +1,17 @@
-import { integer, primaryKey, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  primaryKey,
+  sqliteTable,
+  text,
+} from "drizzle-orm/sqlite-core";
 
 /**
  * Canonical Auth.js (NextAuth v5) tables for the Drizzle adapter, SQLite
- * dialect. Shapes follow the @auth/drizzle-adapter contract — do not rename
- * tables or columns. App-specific user columns (display_name, avatar_url, …)
- * are added by #39, which also owns the drizzle-kit migration.
+ * dialect. The adapter-owned columns (id, name, email, emailVerified, image)
+ * follow the @auth/drizzle-adapter contract — do not rename them. The
+ * app-specific columns below them (display_name, avatar_url, created_at) were
+ * added by #39 and are invisible to the adapter; it only reads/writes the
+ * contract columns.
  */
 
 /** Mirrors AdapterAccount["type"] from @auth/core without taking the dependency. */
@@ -18,6 +25,15 @@ export const users = sqliteTable("user", {
   email: text("email").unique(),
   emailVerified: integer("emailVerified", { mode: "timestamp_ms" }),
   image: text("image"),
+  // App-specific columns (issue #39), not part of the Auth.js adapter contract.
+  // `name`/`image` above are populated by the OAuth provider; these are the
+  // user-editable profile fields the app owns. `displayName` falls back to
+  // `name` in the UI when null; `avatarUrl` falls back to `image`.
+  displayName: text("display_name"),
+  avatarUrl: text("avatar_url"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .notNull()
+    .$defaultFn(() => new Date()),
 });
 
 export const accounts = sqliteTable(
