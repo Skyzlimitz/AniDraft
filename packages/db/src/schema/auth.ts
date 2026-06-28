@@ -31,9 +31,16 @@ export const users = sqliteTable("user", {
   // `name` in the UI when null; `avatarUrl` falls back to `image`.
   displayName: text("display_name"),
   avatarUrl: text("avatar_url"),
-  createdAt: integer("created_at", { mode: "timestamp_ms" })
-    .notNull()
-    .$defaultFn(() => new Date()),
+  // Nullable, NOT NOT NULL: `user` predates this column (the Auth.js adapter,
+  // #20, shipped first), so prod rows already exist. SQLite/libsql refuses to
+  // `ADD COLUMN … NOT NULL` to a populated table because the value would have
+  // to be NULL for the existing rows, and there is no SQL-level default to fall
+  // back on ($defaultFn runs in app code, emitting no SQL). The migration adds
+  // it nullable and backfills the existing rows; the $defaultFn still stamps
+  // every drizzle-inserted row, so in practice app-created users are never null.
+  createdAt: integer("created_at", { mode: "timestamp_ms" }).$defaultFn(
+    () => new Date(),
+  ),
 });
 
 export const accounts = sqliteTable(
