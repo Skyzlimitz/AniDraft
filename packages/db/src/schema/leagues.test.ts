@@ -17,7 +17,15 @@ import { inviteCodes, leagueMembers, leagues } from "./leagues";
  * here. Each league table is then exercised with an insert/select round-trip.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
+const MIGRATIONS = [
+  "0000_true_nighthawk.sql",
+  "0001_tough_talkback.sql",
+  // 0002/0003 add unrelated tables + the app-specific `user` columns; the full
+  // chain must apply because drizzle now emits `created_at` on every user
+  // INSERT (its $defaultFn), so the column has to exist.
+  "0002_flashy_inhumans.sql",
+  "0003_tense_masque.sql",
+];
 
 /** Narrow the first row of a result set, failing loudly if it is missing. */
 function firstRow<T>(rows: T[]): T {

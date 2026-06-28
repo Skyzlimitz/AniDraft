@@ -29,7 +29,14 @@ import { TEST_USER } from "./session";
  * stays valid.
  */
 
-const MIGRATIONS = ["0000_true_nighthawk.sql", "0001_tough_talkback.sql"];
+const MIGRATIONS = [
+  "0000_true_nighthawk.sql",
+  "0001_tough_talkback.sql",
+  "0002_flashy_inhumans.sql",
+  // 0003 adds the app-specific `user` columns; required because drizzle now
+  // emits `created_at` (its $defaultFn) on every user INSERT.
+  "0003_tense_masque.sql",
+];
 
 export default async function globalSetup(): Promise<void> {
   const url = process.env.DATABASE_URL ?? "file:./dev.db";
@@ -66,9 +73,12 @@ export default async function globalSetup(): Promise<void> {
       }
     }
 
+    // This is a raw INSERT (not drizzle), so the app-specific `created_at`
+    // column — NOT NULL with only a drizzle-side $defaultFn — must be supplied
+    // explicitly; SQLite has no default for it.
     await client.execute({
-      sql: "INSERT INTO user (id, name, email) VALUES (?, ?, ?)",
-      args: [TEST_USER.id, TEST_USER.name, TEST_USER.email],
+      sql: "INSERT INTO user (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+      args: [TEST_USER.id, TEST_USER.name, TEST_USER.email, Date.now()],
     });
   } finally {
     client.close();

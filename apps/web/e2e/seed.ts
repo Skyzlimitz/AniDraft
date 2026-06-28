@@ -92,9 +92,17 @@ export async function seedLeague(options: SeedLeagueOptions): Promise<void> {
 
     if (commissioner.name && commissioner.email) {
       // INSERT OR IGNORE so a retry doesn't trip the unique email constraint.
+      // `created_at` is NOT NULL with only a drizzle-side $defaultFn, so this
+      // raw insert must supply it (timestamp_ms) or OR IGNORE silently drops
+      // the row and the leagues FK below fails.
       await db.execute({
-        sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
-        args: [commissioner.id, commissioner.name, commissioner.email],
+        sql: "INSERT OR IGNORE INTO user (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+        args: [
+          commissioner.id,
+          commissioner.name,
+          commissioner.email,
+          Date.now(),
+        ],
       });
     }
 
