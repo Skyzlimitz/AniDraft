@@ -1,114 +1,86 @@
-# PLAN — Issue #31: Public lobby listing page
+# PLAN — Issue #42: `packages/anilist` client with retry + backoff
 
-A site-wide `/lobbies` page listing public leagues that are currently accepting
-joiners, with a working "Join" button for each.
+A GraphQL client for AniList with rate-limit pacing, 429/5xx retry with
+exponential backoff, and optional authenticated requests. Used live by the cron
+snapshot worker and the season-pool fetcher; web readers should consume the
+cached `anime` / `episodes` mirror in `@anidraft/db` rather than calling it.
 
-## Lifecycle rule (what appears)
+## Decisions (the plan-stage recommendations)
 
-A league shows in the lobby **iff** all of:
-
-- `visibility = 'public'` — private leagues are invite-only and never listed;
-- `status = 'setup'` — only pre-draft leagues take new players (the same gate
-  `joinLeague` enforces);
-- **active members < `maxPlayers`** — a full league is not joinable. "Active"
-  means `kickedAt IS NULL`, mirroring the seat-counting rule in
-  `joinLeague.ts`; a kicked member frees a seat.
-
-The moment a league leaves `setup` or fills its last seat it drops off the
-lobby, so every row is genuinely joinable when rendered (the join action
-re-checks under a transaction to close the small race).
-
-## List item content
-
-Per row: league **name**, **commissioner** display name (`user.name`, may be
-null → "Unknown"), **player count / max** (`memberCount / maxPlayers`),
-**season** (`Spring 2026`), **draft time** (`draftStartsAt`, or "Draft time TBD"
-when unscheduled), and a **Join** button. If the viewer is already a member
-(e.g. the commissioner of their own public league), the button is replaced by a
-"You're in" badge so they don't hit an `already_member` error.
-
-## Sort order — recommendation: most-recently-created first
-
-Default `ORDER BY created_at DESC`. Rationale: `draftStartsAt` is **nullable**
-(commissioners may schedule the draft later — see `createLeagueSchema`), so
-"draft-time ascending" would have to bucket the many null-draft-time lobbies
-somewhere arbitrary. Newest-first is well-defined for every row, surfaces fresh
-lobbies (which have the most open seats and the longest runway to fill), and is
-the least surprising default for a "what's new to join" page. Draft-time sorting
-can be added later as an opt-in once scheduling is common.
-
-## Pagination — recommendation: offset (`?page=`)
-
-Offset pagination with a fixed `LOBBY_PAGE_SIZE` (12) and 1-based `?page=N`.
-Rationale: the joinable-public-lobby set is small and short-lived (leagues leave
-the set as soon as they draft or fill), so the usual offset drawbacks —
-expensive deep offsets, drift across pages under heavy insert load — don't bite
-at this scale, and offset gives us a simple "Page N of M" control with
-prev/next links that a cursor can't express as cleanly. The query is bounded by
-`LIMIT/OFFSET`; a sibling `COUNT`-style query yields `totalPages`. If the lobby
-ever grows to thousands of concurrent open leagues, switching the data layer to
-a keyset cursor is a localized change behind `listLobbies`.
-
-## Join mechanics — public leagues have no invite code
-
-`createLeague` only generates an `invite_codes` row for **private** leagues, so
-the existing `/join/[code]` flow cannot join a public lobby league. This issue
-therefore adds a code-free, id-keyed public-join path:
-
-- `apps/web/lib/leagues/joinPublicLeague.ts` — pure domain logic
-  `joinPublicLeague(db, userId, leagueId)`, mirroring `joinLeague`'s
-  one-transaction, idempotent shape. Discriminated result:
-  `joined | already_member | not_found | wrong_state | league_full`.
-  `not_found` covers both a missing league and a **non-public** one (so the
-  endpoint can't be used to gate-crash a private league by id).
-- `apps/web/app/(app)/lobbies/actions.ts` — a `"use server"` action wrapping it:
-  re-checks `auth()` (redirects a signed-out clicker to
-  `/sign-in?callbackUrl=/lobbies`), runs the join, `revalidatePath('/lobbies')`,
-  and returns a small state object the button renders.
+- **GraphQL client: raw `fetch`.** No `graphql-request`/`urql` dependency. The
+  app needs three small queries and one transport policy (pace + retry); a thin
+  `fetch` wrapper is fewer moving parts, zero deps, and trivially mockable in
+  tests by injecting `fetchImpl`. The existing `queryAniList` in `index.ts`
+  already proved the pattern.
+- **Auth: `process.env.ANILIST_TOKEN`** read without `@types/node` (a typed
+  `globalThis.process` narrow). Read queries work unauthenticated; a token only
+  raises the rate ceiling, so it is optional. Added to `.env.example`.
+- **Backoff: `[1s, 2s, 4s, 8s, 16s]`, default 5 retries** (initial + 5 = up to
+  6 requests). A `Retry-After` response header, when present, overrides the
+  scheduled wait.
+- **Pacing: one request / 700ms ≈ 85 req/min**, via a process-wide singleton
+  `sharedPacer`. Every client that doesn't pass its own pacer shares it, so the
+  cap holds across all instances in-process — not just per client.
+- **Typed responses: hand-written** (`types.ts`), no codegen. Each query in
+  `queries.ts` maps field-for-field to a type, reviewable side by side.
 
 ## Files
 
-- `apps/web/lib/leagues/listLobbies.ts` — `listLobbies(db, {page, pageSize,
-  viewerId})` → `{ lobbies, total, page, pageSize, totalPages }`.
-- `apps/web/lib/leagues/listLobbies.test.ts` — unit, migrated libsql.
-- `apps/web/lib/leagues/joinPublicLeague.ts` + `.test.ts` — unit, every branch +
-  the full-league race + public-only guard.
-- `apps/web/app/(app)/lobbies/page.tsx` — server component: parse `?page`, call
-  `listLobbies`, render the grid + pagination; empty state when none.
-- `apps/web/app/(app)/lobbies/actions.ts` — the join server action.
-- `apps/web/components/leagues/LobbyCard.tsx` + `JoinLobbyButton.tsx` (client,
-  `useActionState` for pending + result feedback).
-- `apps/web/proxy.ts` — add `/lobbies` to `PUBLIC_ROUTES` so the lobby is
-  browsable signed-out (discovery); the **Join** action still requires auth.
-- `apps/web/proxy.test.ts` — cover the new public route.
-- `tests/integration/src/lobby-listing-flow.test.ts` — listing + public-join
-  across `@anidraft/shared` + `@anidraft/db`.
-- `apps/web/e2e/lobbies.spec.ts` — browser artifact: list, join, re-render.
+- `packages/anilist/src/types.ts` — `Anime`, `EpisodeScore`, `SeasonPoolFilter`,
+  `AniListSeason`, `AniListFormat` (the canonical home for `AniListSeason`, which
+  `index.ts` now imports).
+- `packages/anilist/src/pacer.ts` — `Pacer` (slot-reservation spacing) +
+  `sharedPacer` singleton + `DEFAULT_MIN_INTERVAL_MS`.
+- `packages/anilist/src/queries.ts` — `MEDIA_FIELDS`, `GET_ANIME_BY_ID_QUERY`,
+  `SEARCH_SEASON_POOL_QUERY` (TV, `!isAdult`), `GET_EPISODE_SCORES_QUERY`.
+- `packages/anilist/src/client.ts` — `AniListClient` (`request`, `getAnimeById`,
+  `searchSeasonPool`, `getEpisodeScores`), bound standalone helpers, and typed
+  errors (`AniListError`, `AniListRateLimitError`, `AniListHttpError`,
+  `AniListGraphQLError`, `AniListNotFoundError`).
+- `packages/anilist/src/__tests__/client.test.ts` + `pacer.test.ts` — unit tests,
+  HTTP fully mocked via injected `fetchImpl`; backoff timing via fake timers.
+- `packages/anilist/src/index.ts` — re-exports the new modules; the legacy thin
+  transport (`queryAniList` / `fetchSeasonAnime` / `searchAnime`, issue #36) is
+  preserved for its existing consumers.
+- `.env.example` (root + package) — `ANILIST_TOKEN`.
+
+## Per-episode scores — why `score` is the show-level value
+
+AniList exposes no per-episode community rating, only one show-level
+`averageScore`. So `getEpisodeScores` pairs each scheduled episode (from
+`airingSchedule`) with that show-level score at fetch time — exactly what
+`episodes.score_when_last_fetched` in `@anidraft/db` stores. When the airing
+schedule is empty but the episode count is known, it falls back to
+`1..episodes` with unknown air dates.
 
 ## Tests
 
-Unit: `listLobbies` (lifecycle filter — excludes private / non-setup / full;
-sort; pagination math; member counts ignore kicked; viewer flag),
-`joinPublicLeague` (all branches, public-only guard, race), the action wrapper
-(auth redirect, result mapping), and `proxy` (public route). Integration:
-create public leagues then list + join across package boundaries. E2E: seeded
-public lobbies, screenshot the list, join one, screenshot the result.
+Unit (mocked HTTP): `getAnimeById` typed result + not-found; `searchSeasonPool`
+pagination/aggregation/`maxPages`/variables; `getEpisodeScores` mapping, sort,
+empty-schedule fallback, not-found; retry resolves after 429; gives up after 5
+retries with `AniListRateLimitError` (attempts = 6); custom `maxRetries`; 5xx
+retried then `AniListHttpError`; non-429 4xx not retried; GraphQL errors;
+backoff timing + `Retry-After` precedence (fake timers); auth header presence.
+Pacer: zero-interval, spacing across 2–3 acquisitions, negative-interval guard,
+`sharedPacer` default. 29 tests.
 
 ## Acceptance criteria coverage
 
-- Lists public, setup, not-full leagues with name/commissioner/count/draft-time
-  + join button → `listLobbies` + `LobbyCard`.
-- Pagination → offset `?page=` with `totalPages`.
-- Sort default → newest-first.
-- Lifecycle (state=setup AND members<max) → the `listLobbies` WHERE/HAVING.
+- `getAnimeById(id)` → typed `Anime`. ✓
+- `searchSeasonPool({season, year})` → TV, `!isAdult` array (filter in query). ✓
+- `getEpisodeScores(animeId)` → per-episode score array. ✓
+- 429 retry with backoff, typed give-up error after the retries. ✓
+- Pacer enforces ≤85 req/min across all in-process instances (singleton). ✓
+
+## Note on the real-API integration artifact
+
+The required manual integration test against the live AniList API could not be
+run from the CI/agent environment: `graphql.anilist.co` is not on the
+environment's egress allow-list (the proxy answers `403` to the CONNECT). The
+client is otherwise fully exercised by the mocked unit suite; the live check
+should be run from a network that permits AniList.
 
 ## Out of scope
 
-League detail page (`/leagues/[id]` doesn't exist yet — Join stays on `/lobbies`
-and revalidates), draft-time sort option, real-time seat updates.
-
-**Kicked-member re-admission** stays out of scope (a separate kick/transfer
-flow). A kicked user's row lingers, so `joinPublicLeague` reports them
-`already_member`; to keep the UI consistent, `listLobbies` flags any membership
-row (kicked or not) as `viewerIsMember`, so a kicked viewer sees the "you're in"
-badge rather than a Join button that can't succeed.
+Caching (cron writer / web reader own it), codegen, the per-episode community
+score AniList doesn't expose.
