@@ -15,6 +15,17 @@ export const MIN_LEAGUE_PLAYERS = 4;
 export const MAX_LEAGUE_PLAYERS = 16;
 
 /**
+ * The minimum number of active members a league must have before a commissioner
+ * can **finalize** it (issue #37). This is deliberately looser than
+ * {@link MIN_LEAGUE_PLAYERS} (the floor for a league's *capacity*): a league is
+ * created with room for at least {@link MIN_LEAGUE_PLAYERS}, but a draft only
+ * needs two participants to be meaningful, so finalize is gated on actual
+ * sign-ups, not the configured capacity. Exported so the finalize domain logic,
+ * its API route, and the settings UI all reference one number.
+ */
+export const MIN_LEAGUE_MEMBERS_TO_FINALIZE = 2;
+
+/**
  * Inclusive bounds (in seconds) for a league's per-pick draft timer, plus the
  * value the settings UI offers as a sensible starting point. Exported so the
  * commissioner settings form and the API validator agree on one set of numbers.

@@ -9,11 +9,21 @@ import {
 } from "@anidraft/shared";
 
 import { Button } from "@/components/ui/button";
+import { FinalizeLeagueControl } from "@/components/leagues/FinalizeLeagueControl";
 
 import { toDateTimeLocal } from "@/lib/leagues/datetime";
 import type { LeagueMemberView } from "@/lib/leagues/getLeagueSettings";
 import type { EditableField } from "@/lib/leagues/updateLeagueSettings";
 import type { LeagueSettingsView } from "@/lib/leagues/updateLeagueSettings";
+
+/**
+ * The fields still editable once a league is `finalized` — only the draft start
+ * time. Mirrors `editableFieldsFor("finalized")` in `updateLeagueSettings`, kept
+ * as a local constant so this client component doesn't import that server-side
+ * module (and its DB deps). The API remains the boundary; this only drives the
+ * optimistic UI lock after an in-page finalize.
+ */
+const FINALIZED_EDITABLE_FIELDS: readonly EditableField[] = ["draftStartsAt"];
 
 /**
  * Commissioner settings form for a private league (`PATCH /api/leagues/[id]`).
@@ -47,6 +57,10 @@ export function PrivateLeagueSettings({
   members: LeagueMemberView[];
 }) {
   const [current, setCurrent] = useState<LeagueSettingsView>(league);
+  // Editable set lives in state so an in-page finalize can narrow it (to just the
+  // draft time) without a reload; seeded from the server-computed prop.
+  const [editable, setEditable] =
+    useState<readonly EditableField[]>(editableFields);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -101,13 +115,25 @@ export function PrivateLeagueSettings({
   }
 
   const canEditField = useMemo(() => {
-    const set = new Set(editableFields);
+    const set = new Set(editable);
     return (field: EditableField) => canEdit && set.has(field);
-  }, [canEdit, editableFields]);
+  }, [canEdit, editable]);
 
   // Nothing is editable (read-only viewer, or a drafting+ league) → render the
   // summary card with no form controls.
-  const hasEditable = canEdit && editableFields.length > 0;
+  const hasEditable = canEdit && editable.length > 0;
+
+  // Once finalized, lock everything but the draft time and reflect the new
+  // status, so the form, roster controls, and finalize button all update in
+  // place — the server has already made this authoritative.
+  function handleFinalized(finalized: LeagueSettingsView) {
+    setCurrent((prev) => ({ ...prev, ...finalized }));
+    setEditable(FINALIZED_EDITABLE_FIELDS);
+  }
+
+  // The finalize control is the commissioner's, and only while the league is
+  // still in setup.
+  const canFinalize = canEdit && current.status === "setup";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -235,6 +261,16 @@ export function PrivateLeagueSettings({
           </div>
         )}
 
+        {canEdit && current.status === "finalized" && (
+          <div
+            role="status"
+            className="rounded-md border border-primary/40 bg-accent px-4 py-3 text-sm"
+          >
+            League finalized. The roster and pool are locked — only the draft
+            start time can still be changed.
+          </div>
+        )}
+
         {formError && (
           <div
             role="alert"
@@ -358,6 +394,13 @@ export function PrivateLeagueSettings({
             setKickError(null);
             setPendingKick(member);
           }}
+        />
+      )}
+
+      {canFinalize && (
+        <FinalizeLeagueControl
+          leagueId={current.id}
+          onFinalized={handleFinalized}
         />
       )}
 
