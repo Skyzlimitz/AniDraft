@@ -9,8 +9,9 @@
  * is no separate `anilist_cache` table — see the note in that file.
  * Draft tables (drafts, picks) live in `draft.ts` (#40).
  * Roster tables (rosters, roster_swaps) live in `roster.ts` (#40).
- * Remaining tables will be added by these issues:
- * - #41: weekly_snapshots, activity_log, notification_events
+ * Scoring history (weekly_snapshots) lives in `scoring.ts` (#41).
+ * Activity feed (activity_log) lives in `activity.ts` (#41).
+ * Notification events (notification_events) live in `notifications.ts` (#41).
  */
 
 export * from "./auth";
@@ -19,3 +20,6 @@ export * from "./poolOverrides";
 export * from "./anime";
 export * from "./draft";
 export * from "./roster";
+export * from "./scoring";
+export * from "./activity";
+export * from "./notifications";
