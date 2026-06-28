@@ -1,4 +1,9 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import {
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 import { leagues } from "./leagues";
 
@@ -55,6 +60,8 @@ export const poolOverrides = sqliteTable(
     // The AniList media id this override applies to. A given show is either
     // added or excluded for a league, never both — the domain layer rebuilds the
     // whole override set on each save, so it can't write a contradictory pair.
+    // The `(league_id, anilist_id)` unique index below makes that invariant a
+    // DB-level guarantee, not just an application convention.
     anilistId: integer("anilist_id").notNull(),
     kind: text("kind", { enum: POOL_OVERRIDE_KINDS }).notNull(),
     // Snapshot of the show, populated only for additions (null for exclusions),
@@ -66,8 +73,15 @@ export const poolOverrides = sqliteTable(
       .$defaultFn(() => new Date()),
   },
   (table) => ({
-    // SQLite does not auto-index FKs; speeds up "all overrides for this league",
-    // the only access pattern (the editor reads every override in one go).
-    leagueIdx: index("pool_overrides_league_id_idx").on(table.leagueId),
+    // At most one override row per (league, show): a show is added or excluded,
+    // never both and never duplicated. The domain layer already rebuilds the
+    // whole set per save, but this makes the invariant unbreakable for any future
+    // write path — and doubles as the FK-covering index for "all overrides for
+    // this league" (the only access pattern), since its leading column is
+    // `league_id`, so no separate index is needed.
+    leagueShowIdx: uniqueIndex("pool_overrides_league_id_anilist_id_idx").on(
+      table.leagueId,
+      table.anilistId,
+    ),
   }),
 );

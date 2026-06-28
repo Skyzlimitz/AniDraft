@@ -76,6 +76,13 @@ export async function GET(
         case "forbidden":
         case "public_unsupported":
           return forbidden(result.status);
+        default: {
+          // Exhaustiveness guard: a new result status added without a case here
+          // becomes a compile error, not a silent fall-through to the editor path.
+          const _exhaustive: never = result;
+          console.error("Unhandled pool search result", _exhaustive);
+          return Response.json({ error: "Failed to load pool" }, { status: 500 });
+        }
       }
     }
 
@@ -88,6 +95,13 @@ export async function GET(
       case "forbidden":
       case "public_unsupported":
         return forbidden(result.status);
+      default: {
+        // Exhaustiveness guard: a new result status added without a case here
+        // becomes a compile error, not an implicit `undefined` return.
+        const _exhaustive: never = result;
+        console.error("Unhandled pool editor result", _exhaustive);
+        return Response.json({ error: "Failed to load pool" }, { status: 500 });
+      }
     }
   } catch (error) {
     console.error("Failed to load pool editor", error);

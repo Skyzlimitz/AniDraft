@@ -30,7 +30,7 @@ import {
 const MIGRATIONS = [
   "0000_true_nighthawk.sql",
   "0001_tough_talkback.sql",
-  "0002_aberrant_squadron_sinister.sql",
+  "0002_flashy_inhumans.sql",
 ];
 
 async function applyMigrations(db: Db): Promise<void> {

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8ad05d3a-9eb3-4265-99a2-ac8550d7ecdf",
+  "id": "38e4523c-27f0-4a77-9959-c0dfcc8a98a8",
   "prevId": "eab0b8c8-3e18-4799-96ff-3e855372a89e",
   "tables": {
     "account": {
@@ -594,12 +594,13 @@
         }
       },
       "indexes": {
-        "pool_overrides_league_id_idx": {
-          "name": "pool_overrides_league_id_idx",
+        "pool_overrides_league_id_anilist_id_idx": {
+          "name": "pool_overrides_league_id_anilist_id_idx",
           "columns": [
-            "league_id"
+            "league_id",
+            "anilist_id"
           ],
-          "isUnique": false
+          "isUnique": true
         }
       },
       "foreignKeys": {

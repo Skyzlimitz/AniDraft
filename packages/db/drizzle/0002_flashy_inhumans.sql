@@ -9,4 +9,4 @@ CREATE TABLE `pool_overrides` (
 	FOREIGN KEY (`league_id`) REFERENCES `leagues`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `pool_overrides_league_id_idx` ON `pool_overrides` (`league_id`);
+CREATE UNIQUE INDEX `pool_overrides_league_id_anilist_id_idx` ON `pool_overrides` (`league_id`,`anilist_id`);

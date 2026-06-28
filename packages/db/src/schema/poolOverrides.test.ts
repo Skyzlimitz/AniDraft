@@ -20,7 +20,7 @@ import { poolOverrides } from "./poolOverrides";
 const MIGRATIONS = [
   "0000_true_nighthawk.sql",
   "0001_tough_talkback.sql",
-  "0002_aberrant_squadron_sinister.sql",
+  "0002_flashy_inhumans.sql",
 ];
 
 function firstRow<T>(rows: T[]): T {
@@ -110,6 +110,20 @@ describe("pool overrides schema round-trips", () => {
     expect(created.kind).toBe("exclusion");
     expect(created.title).toBeNull();
     expect(created.coverImage).toBeNull();
+  });
+
+  it("rejects a duplicate (league, show) override at the DB level", async () => {
+    await db
+      .insert(poolOverrides)
+      .values({ leagueId, anilistId: 7777, kind: "exclusion" });
+
+    // The unique index on (league_id, anilist_id) makes "a show is added or
+    // excluded, never both/twice" a hard guarantee, not just an app convention.
+    await expect(
+      db
+        .insert(poolOverrides)
+        .values({ leagueId, anilistId: 7777, kind: "addition", title: "Dup" }),
+    ).rejects.toThrow();
   });
 
   it("cascades override deletes when the league is removed", async () => {
