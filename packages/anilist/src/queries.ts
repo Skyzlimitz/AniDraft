@@ -72,14 +72,22 @@ export const SEARCH_SEASON_POOL_QUERY = `
  * `getEpisodeScores` — the per-episode airing schedule plus the show-level
  * `averageScore`. AniList exposes no per-episode rating, so the client pairs each
  * scheduled episode with the show-level score at fetch time (see `EpisodeScore`).
+ *
+ * `airingSchedule` is a *paginated* connection (default `perPage` 25, max 50), so
+ * the page/perPage are pinned and `pageInfo.hasNextPage` is selected — the client
+ * walks every page (like `searchSeasonPool`) rather than silently truncating a
+ * long-running show to its first 25–50 episodes.
  */
 export const GET_EPISODE_SCORES_QUERY = `
-  query GetEpisodeScores($id: Int) {
+  query GetEpisodeScores($id: Int, $page: Int, $perPage: Int) {
     Media(id: $id, type: ANIME) {
       id
       episodes
       averageScore
-      airingSchedule { nodes { episode airingAt } }
+      airingSchedule(page: $page, perPage: $perPage) {
+        pageInfo { hasNextPage }
+        nodes { episode airingAt }
+      }
     }
   }
 `;

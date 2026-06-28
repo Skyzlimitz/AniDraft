@@ -188,6 +188,7 @@ describe("getEpisodeScores", () => {
           episodes: 3,
           averageScore: 77,
           airingSchedule: {
+            pageInfo: { hasNextPage: false },
             nodes: [
               { episode: 2, airingAt: 2000 },
               { episode: 1, airingAt: 1000 },
@@ -204,6 +205,77 @@ describe("getEpisodeScores", () => {
       { episode: 1, airedAt: new Date(1_000_000), score: 77 },
       { episode: 2, airedAt: new Date(2_000_000), score: 77 },
     ]);
+    // perPage is pinned at AniList's max for the airingSchedule connection.
+    const firstBody = JSON.parse(
+      (fetchImpl.mock.calls[0]![1] as RequestInit).body as string,
+    );
+    expect(firstBody.variables).toMatchObject({ id: 7, page: 1, perPage: 50 });
+  });
+
+  it("walks every airingSchedule page until hasNextPage is false", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({
+          Media: {
+            id: 9,
+            episodes: 3,
+            averageScore: 60,
+            airingSchedule: {
+              pageInfo: { hasNextPage: true },
+              nodes: [
+                { episode: 1, airingAt: 1000 },
+                { episode: 2, airingAt: 2000 },
+              ],
+            },
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        ok({
+          Media: {
+            id: 9,
+            episodes: 3,
+            averageScore: 60,
+            airingSchedule: {
+              pageInfo: { hasNextPage: false },
+              nodes: [{ episode: 3, airingAt: 3000 }],
+            },
+          },
+        }),
+      );
+    const client = testClient(fetchImpl);
+
+    const result = await client.getEpisodeScores(9);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.map((e) => e.episode)).toEqual([1, 2, 3]);
+    const secondBody = JSON.parse(
+      (fetchImpl.mock.calls[1]![1] as RequestInit).body as string,
+    );
+    expect(secondBody.variables).toMatchObject({ id: 9, page: 2, perPage: 50 });
+  });
+
+  it("stops at maxPages even if more schedule pages remain", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(
+      ok({
+        Media: {
+          id: 10,
+          episodes: null,
+          averageScore: 50,
+          airingSchedule: {
+            pageInfo: { hasNextPage: true },
+            nodes: [{ episode: 1, airingAt: 1000 }],
+          },
+        },
+      }),
+    );
+    const client = testClient(fetchImpl);
+
+    const result = await client.getEpisodeScores(10, 2);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(result.map((e) => e.episode)).toEqual([1, 1]);
   });
 
   it("falls back to 1..episodes when the airing schedule is empty", async () => {
@@ -213,7 +285,7 @@ describe("getEpisodeScores", () => {
           id: 8,
           episodes: 2,
           averageScore: null,
-          airingSchedule: { nodes: [] },
+          airingSchedule: { pageInfo: { hasNextPage: false }, nodes: [] },
         },
       }),
     );

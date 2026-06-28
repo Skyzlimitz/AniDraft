@@ -144,6 +144,7 @@ interface EpisodeScoresResponse {
     episodes: number | null;
     averageScore: number | null;
     airingSchedule: {
+      pageInfo: { hasNextPage: boolean };
       nodes: Array<{ episode: number; airingAt: number | null }>;
     } | null;
   } | null;
@@ -262,19 +263,31 @@ export class AniListClient {
   /**
    * Fetch per-episode scores for an anime: one row per scheduled episode, each
    * paired with the show-level `averageScore` (AniList has no per-episode
-   * rating). When the airing schedule is empty (e.g. a finished show) but the
-   * episode count is known, falls back to `1..episodes` with unknown air dates.
+   * rating). `airingSchedule` is a paginated connection, so every page is walked
+   * (up to `maxPages`, AniList caps `perPage` at 50) — a long-running show is not
+   * truncated to its first page. When the schedule is empty (e.g. a finished
+   * show) but the episode count is known, falls back to `1..episodes` with
+   * unknown air dates.
    */
-  async getEpisodeScores(animeId: number): Promise<EpisodeScore[]> {
-    const data = await this.request<EpisodeScoresResponse>(
-      GET_EPISODE_SCORES_QUERY,
-      { id: animeId },
-    );
-    const media = data.Media;
+  async getEpisodeScores(
+    animeId: number,
+    maxPages = 10,
+  ): Promise<EpisodeScore[]> {
+    const nodes: Array<{ episode: number; airingAt: number | null }> = [];
+    let media: EpisodeScoresResponse["Media"] = null;
+    for (let page = 1; page <= maxPages; page++) {
+      const data = await this.request<EpisodeScoresResponse>(
+        GET_EPISODE_SCORES_QUERY,
+        { id: animeId, page, perPage: 50 },
+      );
+      media = data.Media;
+      if (!media) throw new AniListNotFoundError(animeId);
+      nodes.push(...(media.airingSchedule?.nodes ?? []));
+      if (!media.airingSchedule?.pageInfo.hasNextPage) break;
+    }
     if (!media) throw new AniListNotFoundError(animeId);
 
     const score = media.averageScore;
-    const nodes = media.airingSchedule?.nodes ?? [];
     if (nodes.length > 0) {
       return [...nodes]
         .sort((a, b) => a.episode - b.episode)
