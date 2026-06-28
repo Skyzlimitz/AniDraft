@@ -13,10 +13,9 @@
  * - Stale-cache fallback when the API is down (issue #61)
  */
 
-const ANILIST_API_URL = "https://graphql.anilist.co";
+import type { AniListSeason } from "./types";
 
-/** AniList airing seasons, as the GraphQL `MediaSeason` enum spells them. */
-export type AniListSeason = "WINTER" | "SPRING" | "SUMMER" | "FALL";
+const ANILIST_API_URL = "https://graphql.anilist.co";
 
 export interface AniListMedia {
   id: number;
@@ -179,3 +178,15 @@ export async function searchAnime(
   });
   return data.Page.media;
 }
+
+/**
+ * Issue #42 — the retry/backoff/paced client and its hand-written types. The
+ * legacy thin transport above (`queryAniList`, `fetchSeasonAnime`,
+ * `searchAnime`, `AniListMedia`) predates it and is kept for its existing
+ * consumers; new callers should prefer the `AniListClient` and the
+ * `getAnimeById` / `searchSeasonPool` / `getEpisodeScores` helpers below.
+ */
+export * from "./types";
+export * from "./queries";
+export * from "./pacer";
+export * from "./client";
