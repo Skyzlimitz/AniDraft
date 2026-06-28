@@ -26,4 +26,5 @@ CREATE TABLE `episodes` (
 --> statement-breakpoint
 ALTER TABLE `user` ADD `display_name` text;--> statement-breakpoint
 ALTER TABLE `user` ADD `avatar_url` text;--> statement-breakpoint
-ALTER TABLE `user` ADD `created_at` integer NOT NULL;
+ALTER TABLE `user` ADD `created_at` integer;--> statement-breakpoint
+UPDATE `user` SET `created_at` = (unixepoch() * 1000) WHERE `created_at` IS NULL;

@@ -18,10 +18,11 @@ import {
  * writes to the expected tables (issue #20, acceptance criterion 3).
  *
  * The DDL below mirrors `packages/db/src/schema/auth.ts`, including the
- * app-specific `user` columns (#39). `created_at` is NOT NULL with a drizzle
- * `$defaultFn`, so the adapter's drizzle-issued INSERTs always carry it — the
- * column must exist here or `createUser` fails. The committed drizzle-kit
- * migration is owned by #39.
+ * app-specific `user` columns (#39). `created_at` is nullable (the migration
+ * adds it to an already-populated table) but carries a drizzle `$defaultFn`, so
+ * the adapter's drizzle-issued INSERTs always stamp it — the column must exist
+ * here or `createUser` fails. The committed drizzle-kit migration is owned by
+ * #39.
  */
 
 const AUTH_TABLE_DDL = [
@@ -33,7 +34,7 @@ const AUTH_TABLE_DDL = [
     "image" text,
     "display_name" text,
     "avatar_url" text,
-    "created_at" integer NOT NULL
+    "created_at" integer
   )`,
   `CREATE TABLE "account" (
     "userId" text NOT NULL REFERENCES "user"("id") ON DELETE CASCADE,
