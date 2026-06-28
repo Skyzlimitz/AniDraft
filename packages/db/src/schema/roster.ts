@@ -1,4 +1,11 @@
-import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+import { sql } from "drizzle-orm";
+import {
+  index,
+  integer,
+  sqliteTable,
+  text,
+  uniqueIndex,
+} from "drizzle-orm/sqlite-core";
 
 import { anime } from "./anime";
 import { users } from "./auth";
@@ -20,9 +27,18 @@ import { leagues } from "./leagues";
  * `released_at` is nullable: a live holding has `released_at = NULL`, and a
  * dropped one keeps its row with the drop time stamped. So a user can hold,
  * drop, then re-acquire the same show and accumulate several rows for it over a
- * season — which is why there is deliberately **no** unique constraint on
- * (league, user, anime). The `roster_swaps` table records the paired
- * drop/pick-up that drives those `released_at` / new-row transitions.
+ * season — which is why there is deliberately **no** full unique constraint on
+ * (league, user, anime); released rows must be free to repeat. The
+ * `roster_swaps` table records the paired drop/pick-up that drives those
+ * `released_at` / new-row transitions.
+ *
+ * What *is* enforced is the narrower invariant that matters for correctness: at
+ * most one **live** row per (league, user, anime), via the partial unique index
+ * `liveHoldingIdx` (`WHERE released_at IS NULL`). History stays unconstrained
+ * while a roster engine bug or a concurrent acquire can no longer leave two
+ * `released_at = NULL` rows for the same show — which the `isNull(releasedAt)`
+ * "current roster" read would otherwise surface twice and double-count in
+ * scoring.
  *
  * ## Encoding
  *
@@ -64,6 +80,15 @@ export const rosters = sqliteTable(
       table.leagueId,
       table.userId,
     ),
+    // At most one *live* holding of a given show per user: a partial unique
+    // index scoped to un-released rows. Released rows are excluded from the
+    // index, so history (drop → re-acquire) still accumulates freely, but two
+    // concurrent `released_at = NULL` rows for the same (league, user, anime)
+    // — which the "current roster" read would double-count — are rejected at
+    // the DB level rather than left to the roster engine to prevent.
+    liveHoldingIdx: uniqueIndex("rosters_live_holding_idx")
+      .on(table.leagueId, table.userId, table.animeId)
+      .where(sql`${table.releasedAt} is null`),
   }),
 );
 

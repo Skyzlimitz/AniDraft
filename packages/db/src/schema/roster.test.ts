@@ -26,6 +26,7 @@ const MIGRATIONS = [
   "0002_flashy_inhumans.sql",
   "0003_tense_masque.sql",
   "0004_unusual_vampiro.sql",
+  "0005_supreme_kate_bishop.sql",
 ];
 
 function firstRow<T>(rows: T[]): T {
@@ -144,6 +145,42 @@ describe("roster schema round-trips", () => {
       .from(rosters)
       .where(and(eq(rosters.userId, userId), isNull(rosters.releasedAt)));
     expect(live).toHaveLength(1);
+  });
+
+  it("rejects a second live holding of the same show (partial unique index)", async () => {
+    const { leagueId, userId, animeIds } = await seedFixtures(db);
+    const animeId = animeIds[0]!;
+    await db.insert(rosters).values({ leagueId, userId, animeId });
+
+    // A second un-released row for the same (league, user, anime) would let the
+    // current-roster read double-count the show; the partial unique index on
+    // `WHERE released_at IS NULL` rejects it.
+    await expect(
+      db.insert(rosters).values({ leagueId, userId, animeId }),
+    ).rejects.toThrow();
+  });
+
+  it("allows re-acquiring a show once the prior holding is released", async () => {
+    const { leagueId, userId, animeIds } = await seedFixtures(db);
+    const animeId = animeIds[0]!;
+    const first = firstRow(
+      await db
+        .insert(rosters)
+        .values({ leagueId, userId, animeId })
+        .returning(),
+    );
+
+    // Dropping the first holding moves it out of the partial index's scope, so
+    // the re-acquire is accepted — history accumulates without tripping the
+    // live-holding invariant.
+    await db
+      .update(rosters)
+      .set({ releasedAt: new Date() })
+      .where(eq(rosters.id, first.id));
+
+    await expect(
+      db.insert(rosters).values({ leagueId, userId, animeId }),
+    ).resolves.toBeDefined();
   });
 
   it("round-trips a roster swap with both anime references", async () => {

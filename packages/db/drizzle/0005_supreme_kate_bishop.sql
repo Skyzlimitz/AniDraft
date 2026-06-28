@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `rosters_live_holding_idx` ON `rosters` (`league_id`,`user_id`,`anime_id`) WHERE "rosters"."released_at" is null;
