@@ -73,9 +73,12 @@ export default async function globalSetup(): Promise<void> {
       }
     }
 
+    // This is a raw INSERT (not drizzle), so the app-specific `created_at`
+    // column — NOT NULL with only a drizzle-side $defaultFn — must be supplied
+    // explicitly; SQLite has no default for it.
     await client.execute({
-      sql: "INSERT INTO user (id, name, email) VALUES (?, ?, ?)",
-      args: [TEST_USER.id, TEST_USER.name, TEST_USER.email],
+      sql: "INSERT INTO user (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+      args: [TEST_USER.id, TEST_USER.name, TEST_USER.email, Date.now()],
     });
   } finally {
     client.close();
