@@ -63,9 +63,11 @@ const DRAFT_STARTS_AT_MS = Date.UTC(2026, 8, 1, 18, 0, 0); // 2026-09-01T18:00:0
 async function seedExtraPlayer(leagueId: string): Promise<void> {
   const db = e2eDb();
   try {
+    // `created_at` is NOT NULL with only a drizzle-side $defaultFn; supply it
+    // here or OR IGNORE drops the row and the league_members FK below fails.
     await db.execute({
-      sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
-      args: [PLAYER.id, PLAYER.name, PLAYER.email],
+      sql: "INSERT OR IGNORE INTO user (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+      args: [PLAYER.id, PLAYER.name, PLAYER.email, Date.now()],
     });
     await db.execute({
       sql: "INSERT INTO league_members (league_id, user_id, role, joined_at) VALUES (?, ?, 'player', ?)",

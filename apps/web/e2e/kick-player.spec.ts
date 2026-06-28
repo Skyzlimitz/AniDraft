@@ -44,8 +44,8 @@ test("commissioner kicks a player and they leave the member list", async ({
     args: [LEAGUE_ID],
   });
   await db.execute({
-    sql: "INSERT OR IGNORE INTO user (id, name, email) VALUES (?, ?, ?)",
-    args: [PLAYER.id, PLAYER.name, PLAYER.email],
+    sql: "INSERT OR IGNORE INTO user (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+    args: [PLAYER.id, PLAYER.name, PLAYER.email, Date.now()],
   });
   // `created_at` / `updated_at` / `joined_at` are populated by drizzle's
   // `$defaultFn` in app code, not by a SQL default, so the raw seed must set
