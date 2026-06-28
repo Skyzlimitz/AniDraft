@@ -20,7 +20,7 @@ CREATE TABLE `activity_log` (
 	FOREIGN KEY (`league_id`) REFERENCES `leagues`(`id`) ON UPDATE no action ON DELETE cascade
 );
 --> statement-breakpoint
-CREATE INDEX `activity_log_league_id_occurred_at_idx` ON `activity_log` (`league_id`,`occurred_at`);--> statement-breakpoint
+CREATE INDEX `activity_log_league_id_occurred_at_id_idx` ON `activity_log` (`league_id`,`occurred_at`,`id`);--> statement-breakpoint
 CREATE TABLE `notification_events` (
 	`id` text PRIMARY KEY NOT NULL,
 	`user_id` text NOT NULL,

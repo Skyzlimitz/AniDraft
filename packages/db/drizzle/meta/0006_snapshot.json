@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "42ad754a-ee25-49c0-a5f3-4abb8e9424f4",
+  "id": "0205d367-2273-4ed2-9f36-39809fac090b",
   "prevId": "3cd8a459-cdfa-4ecf-9039-fd706c6acbd5",
   "tables": {
     "account": {
@@ -1403,11 +1403,12 @@
         }
       },
       "indexes": {
-        "activity_log_league_id_occurred_at_idx": {
-          "name": "activity_log_league_id_occurred_at_idx",
+        "activity_log_league_id_occurred_at_id_idx": {
+          "name": "activity_log_league_id_occurred_at_id_idx",
           "columns": [
             "league_id",
-            "occurred_at"
+            "occurred_at",
+            "id"
           ],
           "isUnique": false
         }

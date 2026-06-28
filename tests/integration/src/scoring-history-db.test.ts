@@ -39,7 +39,7 @@ const DB_MIGRATIONS = [
   "0003_tense_masque.sql",
   "0004_unusual_vampiro.sql",
   "0005_supreme_kate_bishop.sql",
-  "0006_natural_karnak.sql",
+  "0006_first_nemesis.sql",
 ];
 
 function firstRow<T>(rows: T[]): T {

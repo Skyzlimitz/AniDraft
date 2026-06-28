@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { and, desc, eq, isNull, lt } from "drizzle-orm";
+import { and, desc, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createDb, type Db } from "../index";
@@ -33,7 +33,7 @@ const MIGRATIONS = [
   "0003_tense_masque.sql",
   "0004_unusual_vampiro.sql",
   "0005_supreme_kate_bishop.sql",
-  "0006_natural_karnak.sql",
+  "0006_first_nemesis.sql",
 ];
 
 function firstRow<T>(rows: T[]): T {
@@ -275,13 +275,14 @@ describe("activity_log round-trips and pagination", () => {
 
     const PAGE = 50;
 
-    // First page: newest-first, no cursor.
+    // First page: newest-first, no cursor. Order by (occurred_at, id) — the
+    // index's order — so paging has a total order to walk.
     const start = performance.now();
     const firstPage = await db
       .select()
       .from(activityLog)
       .where(eq(activityLog.leagueId, leagueId))
-      .orderBy(desc(activityLog.occurredAt))
+      .orderBy(desc(activityLog.occurredAt), desc(activityLog.id))
       .limit(PAGE);
     const firstElapsed = performance.now() - start;
 
@@ -290,9 +291,10 @@ describe("activity_log round-trips and pagination", () => {
     expect(firstPage[0]!.occurredAt.getTime()).toBe(base + 9_999);
     expect(firstElapsed).toBeLessThan(100);
 
-    // Next page via a keyset cursor on occurred_at — the indexed range scan that
-    // keeps pagination flat regardless of how deep we go.
-    const cursor = firstPage[firstPage.length - 1]!.occurredAt;
+    // Next page via the compound keyset cursor (occurred_at, id) — the indexed
+    // range scan that keeps pagination flat regardless of how deep we go, and
+    // (unlike a bare occurred_at cursor) can't skip rows sharing a millisecond.
+    const last = firstPage[firstPage.length - 1]!;
     const nextStart = performance.now();
     const nextPage = await db
       .select()
@@ -300,16 +302,79 @@ describe("activity_log round-trips and pagination", () => {
       .where(
         and(
           eq(activityLog.leagueId, leagueId),
-          lt(activityLog.occurredAt, cursor),
+          or(
+            lt(activityLog.occurredAt, last.occurredAt),
+            and(
+              eq(activityLog.occurredAt, last.occurredAt),
+              lt(activityLog.id, last.id),
+            ),
+          ),
         ),
       )
-      .orderBy(desc(activityLog.occurredAt))
+      .orderBy(desc(activityLog.occurredAt), desc(activityLog.id))
       .limit(PAGE);
     const nextElapsed = performance.now() - nextStart;
 
     expect(nextPage).toHaveLength(PAGE);
     expect(nextPage[0]!.occurredAt.getTime()).toBe(base + 9_999 - PAGE);
     expect(nextElapsed).toBeLessThan(100);
+  });
+
+  it("pages a tied-timestamp feed without skipping or repeating rows (compound keyset)", async () => {
+    const { leagueId } = await seedFixtures(db);
+
+    // Every row shares one occurred_at millisecond — the production hazard the
+    // bare-occurred_at cursor would mishandle. With 120 rows and a page of 50,
+    // a cursor on occurred_at alone would stall (every row is `=`, none `<`) or
+    // drop the boundary rows; the (occurred_at, id) cursor must walk all 120.
+    const sharedAt = new Date(1_700_000_000_000);
+    const TOTAL = 120;
+    const rows = Array.from({ length: TOTAL }, () => ({
+      leagueId,
+      eventType: "score_snapshot" as const,
+      payloadJson: {},
+      occurredAt: sharedAt,
+    }));
+    await db.insert(activityLog).values(rows);
+
+    const PAGE = 50;
+    const seen = new Set<string>();
+    let cursor: { occurredAt: Date; id: string } | null = null;
+
+    // Walk every page to exhaustion via the compound cursor.
+    for (;;) {
+      const where: SQL | undefined = cursor
+        ? and(
+            eq(activityLog.leagueId, leagueId),
+            or(
+              lt(activityLog.occurredAt, cursor.occurredAt),
+              and(
+                eq(activityLog.occurredAt, cursor.occurredAt),
+                lt(activityLog.id, cursor.id),
+              ),
+            ),
+          )
+        : eq(activityLog.leagueId, leagueId);
+
+      const page: (typeof activityLog.$inferSelect)[] = await db
+        .select()
+        .from(activityLog)
+        .where(where)
+        .orderBy(desc(activityLog.occurredAt), desc(activityLog.id))
+        .limit(PAGE);
+
+      if (page.length === 0) break;
+      for (const row of page) {
+        // No row is ever served twice across pages.
+        expect(seen.has(row.id)).toBe(false);
+        seen.add(row.id);
+      }
+      const tail = page[page.length - 1]!;
+      cursor = { occurredAt: tail.occurredAt, id: tail.id };
+    }
+
+    // Every row was visited exactly once — no boundary-millisecond skips.
+    expect(seen.size).toBe(TOTAL);
   });
 
   it("uses the composite index for the latest-activity-by-league read (EXPLAIN)", async () => {
@@ -319,11 +384,13 @@ describe("activity_log round-trips and pagination", () => {
       .values({ leagueId, eventType: "score_snapshot", payloadJson: {} });
 
     const plan = await db.all<{ detail: string }>(
-      `EXPLAIN QUERY PLAN SELECT * FROM activity_log WHERE league_id = '${leagueId}' ORDER BY occurred_at DESC LIMIT 50`,
+      `EXPLAIN QUERY PLAN SELECT * FROM activity_log WHERE league_id = '${leagueId}' ORDER BY occurred_at DESC, id DESC LIMIT 50`,
     );
     const detail = plan.map((r) => r.detail).join(" ");
-    expect(detail).toContain("activity_log_league_id_occurred_at_idx");
+    expect(detail).toContain("activity_log_league_id_occurred_at_id_idx");
     expect(detail).not.toMatch(/SCAN activity_log\b/);
+    // The index supplies the order, so no separate sort step is planned.
+    expect(detail).not.toMatch(/USE TEMP B-TREE FOR ORDER BY/);
   });
 });
 

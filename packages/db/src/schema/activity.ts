@@ -27,12 +27,22 @@ import { leagues } from "./leagues";
  * ## Pagination
  *
  * The only read is "latest activity in this league", newest first, paged. The
- * composite index on (league_id, occurred_at) serves exactly that: it filters by
- * league and yields rows already ordered by time, so a `WHERE league_id = ?
- * ORDER BY occurred_at DESC LIMIT n` (with a keyset cursor for the next page)
- * is an indexed range scan — no table scan, no sort — and stays flat as the log
- * grows into the tens of thousands of rows. Its leading `league_id` also covers
- * the FK.
+ * composite index on (league_id, occurred_at, id) serves exactly that: it
+ * filters by league and yields rows already ordered by time, so a `WHERE
+ * league_id = ? ORDER BY occurred_at DESC, id DESC LIMIT n` is an indexed range
+ * scan — no table scan, no sort — and stays flat as the log grows into the tens
+ * of thousands of rows. Its leading `league_id` also covers the FK.
+ *
+ * `id` is the third index column for a reason: `occurred_at` is not unique
+ * (its default is `new Date()`, so a burst of events in one league can share a
+ * millisecond), and a keyset cursor on `occurred_at` alone would silently skip
+ * the rows sharing the boundary millisecond between pages. Ordering by
+ * (occurred_at, id) — `id` being the primary key — makes the order *total*, so
+ * the next-page cursor is the compound predicate `occurred_at < t OR
+ * (occurred_at = t AND id < lastId)` and pages can't drop or repeat a row. The
+ * id tiebreak is arbitrary (a random uuid) but stable, which is all keyset
+ * pagination needs; rows within the same millisecond simply get a consistent
+ * order.
  *
  * Migration: drizzle-kit, same as the other schema files — `db:generate` emits
  * the forward-only SQL into `drizzle/`.
@@ -79,12 +89,15 @@ export const activityLog = sqliteTable(
   },
   (table) => ({
     // The one read is "latest activity in this league", newest first, paged.
-    // (league_id, occurred_at) filters by league and returns rows pre-ordered by
-    // time, so the feed query is an indexed range scan (no sort, no table scan)
-    // that stays flat as the log grows; the leading league_id also covers the FK.
-    leagueOccurredAtIdx: index("activity_log_league_id_occurred_at_idx").on(
+    // (league_id, occurred_at, id) filters by league and returns rows pre-ordered
+    // by (time, id), so the feed query is an indexed range scan (no sort, no
+    // table scan) that stays flat as the log grows; the leading league_id also
+    // covers the FK. The trailing `id` makes the order total so a keyset cursor
+    // can't skip rows that share an occurred_at millisecond (see the file note).
+    leagueOccurredAtIdx: index("activity_log_league_id_occurred_at_id_idx").on(
       table.leagueId,
       table.occurredAt,
+      table.id,
     ),
   }),
 );
