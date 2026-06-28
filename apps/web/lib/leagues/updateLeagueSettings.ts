@@ -9,6 +9,7 @@ import {
 import type { UpdateLeagueSettingsInput } from "@anidraft/shared";
 
 import { PUBLIC_PICK_TIMER_SECONDS } from "./createLeague";
+import { FINALIZED_EDITABLE_FIELDS } from "./editableFields";
 
 /**
  * Update-league-settings domain logic, kept free of any HTTP/Next concerns so
@@ -122,7 +123,8 @@ export function editableFieldsFor(
     case "setup":
       return ["name", "maxPlayers", "pickTimerSeconds", "draftStartsAt"];
     case "finalized":
-      return ["draftStartsAt"];
+      // Single source of truth, shared with the client-side optimistic lock.
+      return FINALIZED_EDITABLE_FIELDS;
     case "drafting":
     case "in_season":
     case "completed":

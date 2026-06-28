@@ -12,7 +12,7 @@ import {
   type LeagueState,
 } from "@anidraft/shared";
 
-import type { SeasonPoolFetcher } from "./poolEditor";
+import { effectivePoolIds, type SeasonPoolFetcher } from "./poolEditor";
 
 /** The transaction handle passed to a `db.transaction` callback. */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -285,10 +285,11 @@ async function activeMemberCount(
 }
 
 /**
- * The size of the effective draftable pool: the AniList season fetch reconciled
- * with the stored overrides — `(auto − exclusions) ∪ additions`, mirroring
- * `getPoolEditor`. Public lobbies have no overrides, so this is just the auto
- * pool's length for them. We only need the count, so we never materialise titles.
+ * The size of the effective draftable pool. Delegates the reconciliation to the
+ * pool editor's {@link effectivePoolIds} — `(auto − exclusions) ∪ additions` —
+ * so finalize's gate counts exactly what the editor shows the commissioner as
+ * draftable. Public lobbies have no overrides, so this is just the auto pool's
+ * length for them. We only need the count, so we never materialise titles.
  */
 async function effectivePoolSize(
   tx: Tx,
@@ -303,23 +304,7 @@ async function effectivePoolSize(
     .from(poolOverrides)
     .where(eq(poolOverrides.leagueId, leagueId));
 
-  const excluded = new Set(
-    overrides.filter((o) => o.kind === "exclusion").map((o) => o.anilistId),
-  );
-  const autoIds = new Set(autoPool.map((s) => s.anilistId));
-
-  let size = 0;
-  for (const show of autoPool) {
-    if (!excluded.has(show.anilistId)) size += 1;
-  }
-  // Manual additions count once, skipping any the season fetch already returns
-  // (the auto entry already covers that show), matching the editor's dedupe.
-  for (const o of overrides) {
-    if (o.kind !== "addition") continue;
-    if (autoIds.has(o.anilistId)) continue;
-    size += 1;
-  }
-  return size;
+  return effectivePoolIds(autoPool, overrides).size;
 }
 
 /**

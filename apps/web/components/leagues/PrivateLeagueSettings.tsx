@@ -12,18 +12,10 @@ import { Button } from "@/components/ui/button";
 import { FinalizeLeagueControl } from "@/components/leagues/FinalizeLeagueControl";
 
 import { toDateTimeLocal } from "@/lib/leagues/datetime";
+import { FINALIZED_EDITABLE_FIELDS } from "@/lib/leagues/editableFields";
 import type { LeagueMemberView } from "@/lib/leagues/getLeagueSettings";
 import type { EditableField } from "@/lib/leagues/updateLeagueSettings";
 import type { LeagueSettingsView } from "@/lib/leagues/updateLeagueSettings";
-
-/**
- * The fields still editable once a league is `finalized` — only the draft start
- * time. Mirrors `editableFieldsFor("finalized")` in `updateLeagueSettings`, kept
- * as a local constant so this client component doesn't import that server-side
- * module (and its DB deps). The API remains the boundary; this only drives the
- * optimistic UI lock after an in-page finalize.
- */
-const FINALIZED_EDITABLE_FIELDS: readonly EditableField[] = ["draftStartsAt"];
 
 /**
  * Commissioner settings form for a private league (`PATCH /api/leagues/[id]`).
