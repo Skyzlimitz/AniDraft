@@ -14,10 +14,8 @@
     "test": "vitest run --passWithNoTests",
     "clean": "rm -rf dist"
   },
-  "dependencies": {
-    "@anidraft/db": "workspace:*"
-  },
   "devDependencies": {
+    "@anidraft/db": "workspace:*",
     "typescript": "^5.8.0",
     "vitest": "^3.0.0"
   }
