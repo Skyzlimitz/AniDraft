@@ -21,28 +21,24 @@ Reviewed the full `Media` object schema and every type that references episodes 
 
 No object in the schema represents "this episode was rated X".
 
-## Fallback Strategy (required, since per-episode scores don't exist)
+Other anime/TV data sources (AniDB, TMDB, Trakt, OMDb/IMDb) do expose true per-episode ratings — see "Alternatives Considered" below — but the decision below is to not use them.
 
-Use **`Media.trends`**, filtered to entries where `episode` is non-null and `releasing: true`, as a weekly show-level score sample tied to each episode's air date. This gives a score that moves over the course of a season and can be attributed to "the score as of episode N," without claiming it's an episode-specific rating.
+## Decision: Use AniList's Show-Level `averageScore` Directly
+
+Alternative per-episode-capable sources were evaluated (AniDB per-episode `<rating>` votes, TMDB episode `vote_average`, Trakt episode ratings, OMDb/IMDb episode ratings). All are viable but each adds a second data provider, separate rate limits/auth, and weaker anime coverage than AniList for niche/seasonal titles.
+
+**Decision: skip per-episode sourcing entirely. The scoring engine uses AniList's `Media.averageScore` (whole-series score) as the sole score input.** No `Media.trends` sampling, no second API integration. This trades per-episode granularity for simplicity and a single, reliable, already-integrated data source.
 
 ### Query shape
 
 ```graphql
-query EpisodeScoreSamples($mediaId: Int!) {
+query ShowScore($mediaId: Int!) {
   Media(id: $mediaId) {
     id
     title {
       romaji
     }
     averageScore
-    trends(releasing: true, sort: DATE_DESC) {
-      nodes {
-        date
-        episode
-        averageScore
-        releasing
-      }
-    }
   }
 }
 ```
@@ -55,14 +51,7 @@ query EpisodeScoreSamples($mediaId: Int!) {
     "Media": {
       "id": 21519,
       "title": { "romaji": "Frieren: Beyond Journey's End" },
-      "averageScore": 89,
-      "trends": {
-        "nodes": [
-          { "date": 1699920000, "episode": 9, "averageScore": 88, "releasing": true },
-          { "date": 1699315200, "episode": 8, "averageScore": 87, "releasing": true },
-          { "date": 1698710400, "episode": 7, "averageScore": 86, "releasing": true }
-        ]
-      }
+      "averageScore": 89
     }
   }
 }
@@ -70,10 +59,20 @@ query EpisodeScoreSamples($mediaId: Int!) {
 
 ## Impact on Scoring Formula
 
-The scoring engine must be updated to treat "episode score" as **the series' cumulative `averageScore` sampled at the time that episode aired**, not an independent per-episode rating. Any formula component described as "per-episode score" should be renamed/documented as "show-level score sampled at episode N" to avoid implying a more granular signal than AniList actually provides.
+Any formula component previously described as "per-episode score" must be renamed to "series average score" (`Media.averageScore`). The scoring engine does not vary this input by episode — every episode of a given series uses the same `averageScore` value at score-computation time.
+
+## Alternatives Considered (rejected)
+
+| Source | Per-episode scores? | Why rejected |
+|---|---|---|
+| AniList `Media.trends` | Show score sampled by air date, not true per-episode | Adds complexity for marginal signal over flat `averageScore` |
+| AniDB | Yes (`<rating votes="N">`) | Second API/auth, strict rate limits, thinner coverage for new/niche shows |
+| TMDB | Yes (`vote_average` per episode) | Anime metadata/vote volume weaker than anime-native sources |
+| Trakt | Yes (rating/votes per episode) | Anime vote counts low; general-TV-skewed userbase |
+| OMDb (IMDb) | Yes (`imdbRating` per episode) | Unofficial wrapper, tight free-tier limits, thin anime coverage |
 
 ## Conclusion
 
-- [x] Per-episode score availability: **denied** — confirmed only show-level scores exist.
-- [x] Fallback strategy proposed: sample `Media.trends` (show-level `averageScore`) keyed by `episode`/`date`.
+- [x] Per-episode score availability: **denied** — confirmed only show-level scores exist on AniList.
+- [x] Fallback strategy decided: use `Media.averageScore` (whole-series score) directly, no secondary data source.
 - [ ] Scoring epic issues should be updated to reflect this before downstream scoring-engine work starts.
