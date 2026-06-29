@@ -190,3 +190,4 @@ export * from "./types";
 export * from "./queries";
 export * from "./pacer";
 export * from "./client";
+export * from "./seasonPool";
