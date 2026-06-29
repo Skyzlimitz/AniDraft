@@ -151,10 +151,11 @@ importers:
         version: 3.2.6(@types/node@20.19.42)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.22.4)
 
   packages/anilist:
-    devDependencies:
+    dependencies:
       '@anidraft/db':
         specifier: workspace:*
         version: link:../../packages/db
+    devDependencies:
       typescript:
         specifier: ^5.8.0
         version: 5.9.3

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { AniListClient } from "../client";
 import { Pacer } from "../pacer";
-import { fetchSeasonPool, type SeasonPoolAnime } from "../seasonPool";
+import { fetchSeasonPoolRows, type SeasonPoolAnime } from "../seasonPool";
 import type { Anime } from "../types";
 
 /**
@@ -56,13 +56,13 @@ function testClient(fetchImpl: typeof fetch): AniListClient {
   return new AniListClient({ fetchImpl, pacer: new Pacer(0) });
 }
 
-describe("fetchSeasonPool", () => {
+describe("fetchSeasonPoolRows", () => {
   it("maps AniList media onto anime-table insert rows", async () => {
     const fetchImpl = vi
       .fn()
       .mockResolvedValue(pageResponse([anime(1)], false));
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
       client: testClient(fetchImpl),
@@ -106,7 +106,7 @@ describe("fetchSeasonPool", () => {
       ),
     );
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
       client: testClient(fetchImpl),
@@ -123,7 +123,7 @@ describe("fetchSeasonPool", () => {
       ),
     );
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
       client: testClient(fetchImpl),
@@ -140,7 +140,7 @@ describe("fetchSeasonPool", () => {
       ),
     );
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
       client: testClient(fetchImpl),
@@ -163,7 +163,7 @@ describe("fetchSeasonPool", () => {
       ),
     );
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
       client: testClient(fetchImpl),
@@ -178,7 +178,7 @@ describe("fetchSeasonPool", () => {
       .mockResolvedValueOnce(pageResponse([anime(1), anime(2)], true, 1))
       .mockResolvedValueOnce(pageResponse([anime(3)], false, 2));
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "FALL",
       year: 2025,
       client: testClient(fetchImpl),
@@ -197,10 +197,27 @@ describe("fetchSeasonPool", () => {
     });
   });
 
+  it("de-duplicates by id so the rows are safe to insert (PK is the id)", async () => {
+    // POPULARITY_DESC pages can repeat a show when ranks shift mid-walk; the
+    // first (most popular) occurrence must win and the order is preserved.
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(pageResponse([anime(1), anime(2)], true, 1))
+      .mockResolvedValueOnce(pageResponse([anime(2), anime(3)], false, 2));
+
+    const pool = await fetchSeasonPoolRows({
+      season: "SPRING",
+      year: 2026,
+      client: testClient(fetchImpl),
+    });
+
+    expect(pool.map((r) => r.id)).toEqual([1, 2, 3]);
+  });
+
   it("returns an empty array when the season has no eligible anime", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(pageResponse([], false));
 
-    const pool = await fetchSeasonPool({
+    const pool = await fetchSeasonPoolRows({
       season: "WINTER",
       year: 2030,
       client: testClient(fetchImpl),

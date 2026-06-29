@@ -7,6 +7,14 @@
  * result without a second mapping pass. Persisting is out of scope here; this
  * module only fetches and maps.
  *
+ * ## Naming
+ *
+ * This returns `anime`-insert *rows*, not the editor's flattened `PoolShow`. The
+ * web app already has a `fetchSeasonPool(season, year) -> PoolShow[]`
+ * (`apps/web/lib/leagues/seasonPool.ts`) wired into the pool editor; this
+ * package-level function is deliberately named `fetchSeasonPoolRows` so the two
+ * never get confused — a caller picks the row variant explicitly.
+ *
  * ## Eligibility
  *
  * The pool is TV-format, non-adult anime matching the given season/year. The
@@ -20,6 +28,15 @@
  * filters on) and leave any adjustment to the commissioner override page (per
  * the issue's Q8 hybrid resolution).
  *
+ * ## Insert-safety
+ *
+ * The result is de-duplicated by AniList id (first occurrence wins, preserving
+ * the popularity order). `searchSeasonPool` walks `POPULARITY_DESC` pages and
+ * concatenates them, and popularity ranks can shift mid-walk, so the same media
+ * can appear on two pages. Since `anime.id` is the primary key, returning the
+ * raw concatenation could make a downstream `db.insert(anime).values(rows)`
+ * throw a PK violation — deduping here keeps the "ready-to-persist" contract true.
+ *
  * ## Return shape
  *
  * Each item is a `typeof anime.$inferInsert` row, so it matches the DB schema by
@@ -31,8 +48,9 @@
 
 import { AniListClient } from "./client";
 import type { Anime, AniListSeason, AnimeDate } from "./types";
-// Type-only import: we use the table solely to derive its insert-row type, so no
-// runtime dependency on `@anidraft/db` is introduced.
+// Type-only import: we use the table solely to derive its insert-row type. The
+// derived type is re-exported (public surface), so `@anidraft/db` is a regular
+// `dependency` in package.json even though nothing is imported at runtime.
 import type { anime } from "@anidraft/db/schema";
 
 /**
@@ -41,13 +59,14 @@ import type { anime } from "@anidraft/db/schema";
  */
 export type SeasonPoolAnime = typeof anime.$inferInsert;
 
-export interface FetchSeasonPoolOptions {
+export interface FetchSeasonPoolRowsOptions {
   season: AniListSeason;
   year: number;
   /**
-   * Page cap forwarded to `searchSeasonPool` (AniList caps `perPage` at 50). A
-   * season rarely exceeds a few hundred TV titles, so the client default bounds
-   * the worst case while still capturing the full pool.
+   * Page cap forwarded to `searchSeasonPool` (AniList caps `perPage` at 50). The
+   * client default (10 → up to 500 titles) comfortably covers a normal season;
+   * an unusually large season could be truncated at the cap, so raise this if a
+   * pool is ever expected to exceed it.
    */
   maxPages?: number;
   /**
@@ -94,19 +113,26 @@ function toPoolRow(media: Anime): SeasonPoolAnime {
 
 /**
  * Fetch the eligible draft pool for a season/year as ready-to-persist `anime`
- * rows: TV-format, non-adult, season-tagged, most popular first. Walks every
- * AniList page (via {@link AniListClient.searchSeasonPool}) and maps each result
- * onto the `@anidraft/db` `anime` insert shape.
+ * rows: TV-format, non-adult, season-tagged, most popular first, de-duplicated
+ * by id. Walks every AniList page (via {@link AniListClient.searchSeasonPool})
+ * and maps each result onto the `@anidraft/db` `anime` insert shape.
  */
-export async function fetchSeasonPool({
+export async function fetchSeasonPoolRows({
   season,
   year,
   maxPages,
   client,
-}: FetchSeasonPoolOptions): Promise<SeasonPoolAnime[]> {
+}: FetchSeasonPoolRowsOptions): Promise<SeasonPoolAnime[]> {
   const aniList = client ?? new AniListClient();
   const media = await aniList.searchSeasonPool({ season, year, maxPages });
-  return media
-    .filter((m) => m.format === "TV" && !m.isAdult)
-    .map(toPoolRow);
+
+  const rows: SeasonPoolAnime[] = [];
+  const seen = new Set<number>();
+  for (const m of media) {
+    if (m.format !== "TV" || m.isAdult) continue;
+    if (seen.has(m.id)) continue; // dedupe: first (most popular) occurrence wins
+    seen.add(m.id);
+    rows.push(toPoolRow(m));
+  }
+  return rows;
 }

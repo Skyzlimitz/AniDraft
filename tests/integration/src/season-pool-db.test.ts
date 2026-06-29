@@ -2,17 +2,17 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchSeasonPool, type SeasonPoolAnime } from "@anidraft/anilist";
+import { fetchSeasonPoolRows, type SeasonPoolAnime } from "@anidraft/anilist";
 import { anime, createDb, type Db } from "@anidraft/db";
 
 /**
  * Integration test: the season pool fetcher (`@anidraft/anilist`) ↔ the `anime`
  * table (`@anidraft/db`) (issue #43).
  *
- * `fetchSeasonPool` exists to feed the league-creation / pool-override flow, and
+ * `fetchSeasonPoolRows` exists to feed the league-creation / pool-override flow, and
  * its contract is that what it returns is directly persistable as `anime` rows.
  * This test pins that seam end to end: stub the AniList HTTP response, run
- * `fetchSeasonPool`, then insert the result straight into a real `anime` table
+ * `fetchSeasonPoolRows`, then insert the result straight into a real `anime` table
  * built from the committed migration chain and read it back. If the mapper ever
  * drifts from the schema (a missing not-null column, a wrong type), the insert
  * fails here — not in production.
@@ -107,7 +107,7 @@ describe("season pool fetcher ↔ anime table boundary", () => {
   it("returns rows that insert cleanly into the anime table", async () => {
     stubAniListPages([mediaNode(1), mediaNode(2)], [mediaNode(3)]);
 
-    const pool: SeasonPoolAnime[] = await fetchSeasonPool({
+    const pool: SeasonPoolAnime[] = await fetchSeasonPoolRows({
       season: "SPRING",
       year: 2026,
     });
@@ -136,6 +136,19 @@ describe("season pool fetcher ↔ anime table boundary", () => {
     expect(stored[0]!.rawMetadata).toMatchObject({ id: 1, popularity: 1001 });
   });
 
+  it("inserts cleanly even when AniList repeats a show across pages", async () => {
+    // POPULARITY_DESC pagination can return the same id on two pages. Without
+    // dedupe this insert would throw a PK violation on `anime.id`.
+    stubAniListPages([mediaNode(1), mediaNode(2)], [mediaNode(2), mediaNode(3)]);
+
+    const pool = await fetchSeasonPoolRows({ season: "SPRING", year: 2026 });
+    expect(pool.map((r) => r.id)).toEqual([1, 2, 3]);
+
+    await db.insert(anime).values(pool);
+    const stored = await db.select().from(anime);
+    expect(stored.map((r) => r.id).sort((a, b) => a - b)).toEqual([1, 2, 3]);
+  });
+
   it("persists only the eligible (TV, non-adult) pool", async () => {
     stubAniListPages([
       mediaNode(1),
@@ -144,7 +157,7 @@ describe("season pool fetcher ↔ anime table boundary", () => {
       mediaNode(4),
     ]);
 
-    const pool = await fetchSeasonPool({ season: "SPRING", year: 2026 });
+    const pool = await fetchSeasonPoolRows({ season: "SPRING", year: 2026 });
     await db.insert(anime).values(pool);
 
     const stored = await db.select().from(anime);
