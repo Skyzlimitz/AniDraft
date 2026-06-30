@@ -114,7 +114,9 @@ export const episodes = sqliteTable(
     airDate: integer("air_date", { mode: "timestamp_ms" }),
     // AniList `averageScore` (0–100 integer) captured the last time this episode
     // row was refreshed — the value the scoring job reads. Null before the first
-    // score is available.
+    // score is available. AniList exposes no per-episode rating, so this is the
+    // show-level score repeated per episode; see
+    // docs/research/anilist-episode-scores.md for why.
     scoreWhenLastFetched: integer("score_when_last_fetched"),
     // Cache staleness stamp: when this episode row was last pulled from AniList.
     fetchedAt: integer("fetched_at", { mode: "timestamp_ms" })

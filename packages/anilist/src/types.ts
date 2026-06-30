@@ -86,6 +86,8 @@ export interface Anime {
  * `averageScore`. So `score` is that show-level value captured at fetch time
  * (exactly what `episodes.score_when_last_fetched` stores), repeated per
  * episode; `airedAt` is the episode's own airing time from the airing schedule.
+ * See docs/research/anilist-episode-scores.md for the spike that confirmed this
+ * and the alternatives (AniDB/TMDB/Trakt/OMDb) that were considered and rejected.
  */
 export interface EpisodeScore {
   /** 1-based episode number. */
