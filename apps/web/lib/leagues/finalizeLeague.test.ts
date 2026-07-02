@@ -1,11 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createDb,
   leagueMembers,
   leagues,
   poolOverrides,
@@ -13,6 +11,7 @@ import {
   type Db,
   type LeagueStatus,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 import {
   collectPreconditionFailures,
@@ -27,29 +26,6 @@ import type { PoolShow, SeasonPoolFetcher } from "./poolEditor";
  * league tests — `finalizeLeague` runs inside a transaction and `:memory:` is
  * per-connection). The AniList season fetch is injected as a plain fake.
  */
-
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 // A generous default pool, larger than any roster we seed, so the pool-size
 // precondition passes unless a test deliberately shrinks it.
@@ -127,8 +103,7 @@ describe("finalizeLeague", () => {
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "anidraft-finalize-"));
-    db = createDb(`file:${join(dir, "test.db")}`);
-    await applyMigrations(db);
+    db = await createMigratedDb(`file:${join(dir, "test.db")}`);
     commissionerId = crypto.randomUUID();
     playerId = crypto.randomUUID();
     outsiderId = crypto.randomUUID();

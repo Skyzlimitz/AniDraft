@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createClient } from "@libsql/client";
+import { runMigrations } from "@anidraft/db/testing";
 
 import { TEST_USER } from "./session";
 
@@ -29,15 +28,6 @@ import { TEST_USER } from "./session";
  * stays valid.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
 export default async function globalSetup(): Promise<void> {
   const url = process.env.DATABASE_URL ?? "file:./dev.db";
   // Guard: only ever seed a local file DB; never touch a remote (Turso) URL.
@@ -62,16 +52,9 @@ export default async function globalSetup(): Promise<void> {
     }
 
     await client.execute("PRAGMA foreign_keys = ON");
-    for (const file of MIGRATIONS) {
-      const path = fileURLToPath(
-        new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-      );
-      const sql = readFileSync(path, "utf8");
-      for (const statement of sql.split("--> statement-breakpoint")) {
-        const trimmed = statement.trim();
-        if (trimmed) await client.execute(trimmed);
-      }
-    }
+    // Apply every committed migration (journal-driven) via the shared runner, so
+    // this seed can't drift from the schema the app runs against.
+    await runMigrations((statement) => client.execute(statement));
 
     // This is a raw INSERT (not drizzle), so the app-specific `created_at`
     // column — NOT NULL with only a drizzle-side $defaultFn — must be supplied

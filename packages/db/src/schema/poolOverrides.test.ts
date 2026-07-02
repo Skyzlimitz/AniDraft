@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { createDb, type Db } from "../index";
+import { type Db } from "../index";
+import { createMigratedDb } from "../testing";
 import { users } from "./auth";
 import { leagues } from "./leagues";
 import { poolOverrides } from "./poolOverrides";
@@ -17,33 +16,10 @@ import { poolOverrides } from "./poolOverrides";
  * the table with insert/select round-trips and the FK cascade.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
   if (row === undefined) throw new Error("expected at least one row");
   return row;
-}
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
 }
 
 describe("pool overrides schema round-trips", () => {
@@ -51,8 +27,7 @@ describe("pool overrides schema round-trips", () => {
   let leagueId: string;
 
   beforeAll(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
 
     const commissionerId = crypto.randomUUID();
     await db

@@ -1,15 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   leagueMembers,
   leagues,
   users,
-  createDb,
   type Db,
   type LeagueStatus,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 import { type CreateLeagueInput } from "@anidraft/shared";
 
 /**
@@ -23,29 +21,6 @@ import { type CreateLeagueInput } from "@anidraft/shared";
  * id-keyed join — rather than importing them, validating they hold against the
  * real migrated schema.
  */
-
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 const activeMemberCount = sql<number>`count(${leagueMembers.userId}) filter (where ${leagueMembers.kickedAt} is null)`;
 
@@ -102,7 +77,10 @@ async function joinPublicLeague(db: Db, userId: string, leagueId: string) {
     .select({ userId: leagueMembers.userId })
     .from(leagueMembers)
     .where(
-      and(eq(leagueMembers.leagueId, league.id), isNull(leagueMembers.kickedAt)),
+      and(
+        eq(leagueMembers.leagueId, league.id),
+        isNull(leagueMembers.kickedAt),
+      ),
     );
   if (active.length >= league.maxPlayers) {
     return { status: "league_full", leagueId: league.id };
@@ -160,8 +138,7 @@ describe("public-lobby flow (shared schema + db)", () => {
   let commissionerId: string;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
     userSeq = 0;
     commissionerId = await seedUser(db, "Commish");
   });

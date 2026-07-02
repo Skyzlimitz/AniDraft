@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, desc, eq, isNull, lt, or, type SQL } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createDb, type Db } from "../index";
+import { type Db } from "../index";
+import { createMigratedDb } from "../testing";
 import { activityLog } from "./activity";
 import { anime } from "./anime";
 import { users } from "./auth";
@@ -26,35 +25,10 @@ import { weeklySnapshots } from "./scoring";
  * wall-clock budget).
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-  "0004_unusual_vampiro.sql",
-  "0005_supreme_kate_bishop.sql",
-  "0006_first_nemesis.sql",
-];
-
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
   if (row === undefined) throw new Error("expected at least one row");
   return row;
-}
-
-async function applyMigrations(db: Db): Promise<void> {
-  // libsql honours foreign keys only when asked; enable so cascade/refs apply.
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
 }
 
 /** Seed the league + user + anime rows these tables depend on. */
@@ -96,8 +70,7 @@ describe("weekly_snapshots round-trips", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("round-trips a snapshot, preserving the JSON breakdown and stamping snapshotted_at", async () => {
@@ -210,8 +183,7 @@ describe("activity_log round-trips and pagination", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("round-trips an activity row, preserving the JSON payload and event_type", async () => {
@@ -398,8 +370,7 @@ describe("notification_events round-trips", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("round-trips a notification with nullable lifecycle stamps defaulting to null", async () => {

@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 
-import { createDb, type Db } from "../index";
+import { type Db } from "../index";
+import { createMigratedDb } from "../testing";
 import { users } from "./auth";
 import { inviteCodes, leagueMembers, leagues } from "./leagues";
 
@@ -17,16 +16,6 @@ import { inviteCodes, leagueMembers, leagues } from "./leagues";
  * here. Each league table is then exercised with an insert/select round-trip.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  // 0002/0003 add unrelated tables + the app-specific `user` columns; the full
-  // chain must apply because drizzle now emits `created_at` on every user
-  // INSERT (its $defaultFn), so the column has to exist.
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-];
-
 /** Narrow the first row of a result set, failing loudly if it is missing. */
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
@@ -34,28 +23,12 @@ function firstRow<T>(rows: T[]): T {
   return row;
 }
 
-async function applyMigrations(db: Db): Promise<void> {
-  // libsql honours foreign keys only when asked; enable so cascade/refs apply.
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
-
 describe("league schema round-trips", () => {
   let db: Db;
   let commissionerId: string;
 
   beforeAll(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
 
     // Leagues/members reference the auth `user` table; seed a commissioner.
     commissionerId = crypto.randomUUID();

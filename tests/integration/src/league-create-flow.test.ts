@@ -1,15 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  createDb,
   inviteCodes,
   leagueMembers,
   leagues,
   users,
   type Db,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 import {
   createLeagueSchema,
   generateInviteCode,
@@ -27,31 +25,8 @@ import {
  * private league — a unique invite code, against the real migrated schema.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
 /** Mirrors `apps/web/lib/leagues/createLeague.ts`. */
 const PUBLIC_PICK_TIMER_SECONDS = 90;
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 /** Validate + persist a league the way the create-league route does. */
 async function createLeague(
@@ -86,7 +61,9 @@ async function createLeague(
   let inviteCode: string | null = null;
   if (!isPublic) {
     inviteCode = generateInviteCode();
-    await db.insert(inviteCodes).values({ code: inviteCode, leagueId: league.id });
+    await db
+      .insert(inviteCodes)
+      .values({ code: inviteCode, leagueId: league.id });
   }
 
   return { leagueId: league.id, inviteCode };
@@ -97,8 +74,7 @@ describe("create-league flow (shared schema + db)", () => {
   let commissionerId: string;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
     commissionerId = crypto.randomUUID();
     await db
       .insert(users)
@@ -116,9 +92,7 @@ describe("create-league flow (shared schema + db)", () => {
 
     // The invite code the create flow produced must satisfy the join validator.
     expect(inviteCode).not.toBeNull();
-    expect(() =>
-      joinLeagueSchema.parse({ inviteCode }),
-    ).not.toThrow();
+    expect(() => joinLeagueSchema.parse({ inviteCode })).not.toThrow();
 
     const [league] = await db
       .select()

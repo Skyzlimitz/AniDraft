@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { createDb, type Db } from "../index";
+import { applyMigrations, createMigratedDb } from "../testing";
 import { anime, episodes } from "./anime";
 import { users } from "./auth";
 
@@ -19,36 +18,10 @@ import { users } from "./auth";
  * the empty-DB tests can't catch).
  */
 
-const BASE_MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-];
-const MIGRATIONS = [...BASE_MIGRATIONS, "0003_tense_masque.sql"];
-
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
   if (row === undefined) throw new Error("expected at least one row");
   return row;
-}
-
-function runMigrationFile(db: Db, file: string): Promise<void> {
-  const path = fileURLToPath(new URL(`../../drizzle/${file}`, import.meta.url));
-  const sql = readFileSync(path, "utf8");
-  return (async () => {
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  })();
-}
-
-async function applyMigrations(
-  db: Db,
-  files: readonly string[] = MIGRATIONS,
-): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of files) await runMigrationFile(db, file);
 }
 
 /** A complete, valid `anime` row; tests override only the fields they assert on. */
@@ -75,8 +48,7 @@ describe("anime + episodes schema round-trips", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("round-trips an anime row, preserving enums, the JSON blob, and dates", async () => {
@@ -215,8 +187,7 @@ describe("app-specific user columns", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("stores display_name / avatar_url and auto-stamps created_at", async () => {
@@ -263,7 +234,13 @@ describe("migration 0003 on an already-populated user table", () => {
   // prove the ALTER succeeds and the legacy row gets a value.
   it("adds created_at and backfills the existing row instead of failing", async () => {
     const db = createDb(":memory:");
-    await applyMigrations(db, BASE_MIGRATIONS);
+    // Only the migrations that precede 0003, so the ALTER runs against a table
+    // that already has rows (the prod case).
+    await applyMigrations(db, [
+      "0000_true_nighthawk",
+      "0001_tough_talkback",
+      "0002_flashy_inhumans",
+    ]);
 
     await db.run(
       "INSERT INTO user (id, email) VALUES ('legacy', 'legacy@anidraft.test')",
@@ -271,7 +248,7 @@ describe("migration 0003 on an already-populated user table", () => {
 
     // Would throw "Cannot add a NOT NULL column with default value NULL" if the
     // migration still added the column NOT NULL.
-    await runMigrationFile(db, "0003_tense_masque.sql");
+    await applyMigrations(db, ["0003_tense_masque"]);
 
     const fetched = firstRow(
       await db.select().from(users).where(eq(users.id, "legacy")),

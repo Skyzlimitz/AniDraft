@@ -1,11 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, desc, eq, isNull } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   activityLog,
   anime,
-  createDb,
   leagues,
   notificationEvents,
   users,
@@ -14,6 +11,7 @@ import {
   type Db,
   type NotificationType,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 /**
  * Integration test: the scoring-history / activity / notification tables ↔ the
@@ -24,7 +22,7 @@ import {
  * reads the feed and unread counts back. None of that consumer logic exists yet
  * (it is deferred — see the issue), so this test pins the boundary that *will*
  * carry it: that the three tables and their enum types are reachable from the
- * package root the apps import, and round-trip through `createDb` against the
+ * package root the apps import, and round-trip through `createMigratedDb` against the
  * committed migration chain (so migration 0006 applying cleanly is exercised
  * across the package boundary, not just inside `@anidraft/db`'s own unit tests).
  *
@@ -32,34 +30,10 @@ import {
  * same forward-only SQL CI applies, so this and production share one schema.
  */
 
-const DB_MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-  "0004_unusual_vampiro.sql",
-  "0005_supreme_kate_bishop.sql",
-  "0006_first_nemesis.sql",
-];
-
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
   if (row === undefined) throw new Error("expected at least one row");
   return row;
-}
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of DB_MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
 }
 
 async function seedFixtures(db: Db): Promise<{
@@ -100,8 +74,7 @@ describe("scoring-history schema ↔ @anidraft/db boundary", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("writes and reads back a weekly snapshot through the package entry point", async () => {

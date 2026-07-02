@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { anime, createDb, episodes, type Db } from "@anidraft/db";
+import { anime, episodes, type Db } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 /**
  * Integration test: the cache-backed `/api/anime/[id]` reader ↔ the `anime` /
@@ -25,27 +24,6 @@ import { anime, createDb, episodes, type Db } from "@anidraft/db";
 
 // 0000–0003 is the set that lands `anime` + `episodes` (0003 also ALTERs
 // `user`, which 0000 creates). Kept identical to the reader's unit-test list.
-const DB_MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of DB_MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
-
 const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Mirrors `apps/web/lib/anime/getCachedAnime.ts` against the real db. */
@@ -109,8 +87,7 @@ describe("cached anime reader ↔ anime/episodes tables boundary", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
     // The read path must never reach the network; make any fetch a hard failure.
     vi.stubGlobal("fetch", () => {
       throw new Error("AniList must not be called by the cache reader");
