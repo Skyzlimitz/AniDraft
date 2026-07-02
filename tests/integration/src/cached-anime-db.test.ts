@@ -23,14 +23,13 @@ import { anime, createDb, episodes, type Db } from "@anidraft/db";
  * cached data").
  */
 
+// 0000–0003 is the set that lands `anime` + `episodes` (0003 also ALTERs
+// `user`, which 0000 creates). Kept identical to the reader's unit-test list.
 const DB_MIGRATIONS = [
   "0000_true_nighthawk.sql",
   "0001_tough_talkback.sql",
   "0002_flashy_inhumans.sql",
   "0003_tense_masque.sql",
-  "0004_unusual_vampiro.sql",
-  "0005_supreme_kate_bishop.sql",
-  "0006_first_nemesis.sql",
 ];
 
 async function applyMigrations(db: Db): Promise<void> {
@@ -51,23 +50,38 @@ const STALE_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Mirrors `apps/web/lib/anime/getCachedAnime.ts` against the real db. */
 async function readCachedAnime(db: Db, animeId: number, now: Date) {
-  const [row] = await db
-    .select()
-    .from(anime)
-    .where(eq(anime.id, animeId))
-    .limit(1);
+  // Same shape as the reader: concurrent metadata (projected, no `raw_metadata`)
+  // + episodes reads keyed off `animeId`.
+  const [[row], episodeRows] = await Promise.all([
+    db
+      .select({
+        id: anime.id,
+        title: anime.title,
+        romajiTitle: anime.romajiTitle,
+        englishTitle: anime.englishTitle,
+        format: anime.format,
+        season: anime.season,
+        seasonYear: anime.seasonYear,
+        startDate: anime.startDate,
+        episodesPlanned: anime.episodesPlanned,
+        coverImageUrl: anime.coverImageUrl,
+        isAdult: anime.isAdult,
+      })
+      .from(anime)
+      .where(eq(anime.id, animeId))
+      .limit(1),
+    db
+      .select({
+        episodeNumber: episodes.episodeNumber,
+        airDate: episodes.airDate,
+        score: episodes.scoreWhenLastFetched,
+        fetchedAt: episodes.fetchedAt,
+      })
+      .from(episodes)
+      .where(eq(episodes.animeId, animeId))
+      .orderBy(episodes.episodeNumber),
+  ]);
   if (!row) return null;
-
-  const episodeRows = await db
-    .select({
-      episodeNumber: episodes.episodeNumber,
-      airDate: episodes.airDate,
-      score: episodes.scoreWhenLastFetched,
-      fetchedAt: episodes.fetchedAt,
-    })
-    .from(episodes)
-    .where(eq(episodes.animeId, animeId))
-    .orderBy(episodes.episodeNumber);
 
   const fetchedAt = episodeRows.reduce<Date | null>(
     (latest, episode) =>
@@ -79,20 +93,9 @@ async function readCachedAnime(db: Db, animeId: number, now: Date) {
   const stale =
     fetchedAt === null || now.getTime() - fetchedAt.getTime() > STALE_AFTER_MS;
 
+  // The projection is exactly the response's `anime` shape — return it directly.
   return {
-    anime: {
-      id: row.id,
-      title: row.title,
-      romajiTitle: row.romajiTitle,
-      englishTitle: row.englishTitle,
-      format: row.format,
-      season: row.season,
-      seasonYear: row.seasonYear,
-      startDate: row.startDate,
-      episodesPlanned: row.episodesPlanned,
-      coverImageUrl: row.coverImageUrl,
-      isAdult: row.isAdult,
-    },
+    anime: row,
     episodes: episodeRows,
     fetchedAt,
     stale,

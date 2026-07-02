@@ -88,6 +88,18 @@ describe("GET /api/anime/[id]", () => {
     expect(json.stale).toBe(false);
   });
 
+  it("sets a shared-cache Cache-Control header on the 200", async () => {
+    getCachedAnimeMock.mockResolvedValue(sampleCached);
+
+    const res = await GET(getRequest("12345"), paramsFor("12345"));
+
+    expect(res.status).toBe(200);
+    const cacheControl = res.headers.get("Cache-Control") ?? "";
+    expect(cacheControl).toContain("public");
+    expect(cacheControl).toContain("s-maxage=");
+    expect(cacheControl).toContain("stale-while-revalidate=");
+  });
+
   it("passes the stale flag through to the response", async () => {
     getCachedAnimeMock.mockResolvedValue({ ...sampleCached, stale: true });
 

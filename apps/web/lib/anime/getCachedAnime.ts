@@ -68,6 +68,27 @@ export interface CachedAnime {
 }
 
 /**
+ * Recursively replaces every `Date` with the ISO `string` that
+ * `JSON.stringify` / `Response.json` produce for it (`Date | null` becomes
+ * `string | null`, and so on). Leaves every other type untouched.
+ */
+export type Serialized<T> = T extends Date
+  ? string
+  : T extends (infer U)[]
+    ? Serialized<U>[]
+    : T extends object
+      ? { [K in keyof T]: Serialized<T[K]> }
+      : T;
+
+/**
+ * The JSON wire shape of {@link CachedAnime} — what a consumer actually gets
+ * from `await response.json()`. `Response.json` serializes every `Date` field
+ * to an ISO string, so consumers must type the parsed body as this (not
+ * {@link CachedAnime}) to avoid calling `Date` methods on a string at runtime.
+ */
+export type SerializedCachedAnime = Serialized<CachedAnime>;
+
+/**
  * Read one anime from the cache by its AniList media id, or `null` when the id
  * isn't cached yet (the route maps that to a 404).
  *
@@ -79,27 +100,45 @@ export async function getCachedAnime(
   animeId: number,
   now: Date = new Date(),
 ): Promise<CachedAnime | null> {
-  const [row] = await db
-    .select()
-    .from(anime)
-    .where(eq(anime.id, animeId))
-    .limit(1);
+  // Both reads key off `animeId` alone (the episodes query has no dependency on
+  // the anime row), so they run concurrently — one round-trip instead of two on
+  // a cache hit. The cost is one wasted (small) episodes query on a 404, which
+  // is the rarer path. The metadata select projects only the columns the
+  // response needs, deliberately leaving the multi-KB `raw_metadata` blob unread.
+  const [[row], episodeRows] = await Promise.all([
+    db
+      .select({
+        id: anime.id,
+        title: anime.title,
+        romajiTitle: anime.romajiTitle,
+        englishTitle: anime.englishTitle,
+        format: anime.format,
+        season: anime.season,
+        seasonYear: anime.seasonYear,
+        startDate: anime.startDate,
+        episodesPlanned: anime.episodesPlanned,
+        coverImageUrl: anime.coverImageUrl,
+        isAdult: anime.isAdult,
+      })
+      .from(anime)
+      .where(eq(anime.id, animeId))
+      .limit(1),
+    // Per-episode scores, episode-number order — the natural display order and
+    // what the leading PK column already sorts by.
+    db
+      .select({
+        episodeNumber: episodes.episodeNumber,
+        airDate: episodes.airDate,
+        score: episodes.scoreWhenLastFetched,
+        fetchedAt: episodes.fetchedAt,
+      })
+      .from(episodes)
+      .where(eq(episodes.animeId, animeId))
+      .orderBy(episodes.episodeNumber),
+  ]);
   if (!row) {
     return null;
   }
-
-  // Per-episode scores, episode-number order — the natural display order and
-  // what the leading PK column already sorts by.
-  const episodeRows = await db
-    .select({
-      episodeNumber: episodes.episodeNumber,
-      airDate: episodes.airDate,
-      score: episodes.scoreWhenLastFetched,
-      fetchedAt: episodes.fetchedAt,
-    })
-    .from(episodes)
-    .where(eq(episodes.animeId, animeId))
-    .orderBy(episodes.episodeNumber);
 
   // "When this anime was last refreshed" is the freshest episode fetch; episodes
   // are pulled together, so the newest stamp represents the whole row. Null when
@@ -116,20 +155,10 @@ export async function getCachedAnime(
   const stale =
     fetchedAt === null || now.getTime() - fetchedAt.getTime() > STALE_AFTER_MS;
 
+  // The metadata projection is exactly `CachedAnimeMetadata`, so the row is the
+  // response's `anime` object directly.
   return {
-    anime: {
-      id: row.id,
-      title: row.title,
-      romajiTitle: row.romajiTitle,
-      englishTitle: row.englishTitle,
-      format: row.format,
-      season: row.season,
-      seasonYear: row.seasonYear,
-      startDate: row.startDate,
-      episodesPlanned: row.episodesPlanned,
-      coverImageUrl: row.coverImageUrl,
-      isAdult: row.isAdult,
-    },
+    anime: row,
     episodes: episodeRows,
     fetchedAt,
     stale,
