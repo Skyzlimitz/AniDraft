@@ -1,17 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  createDb,
   inviteCodes,
   leagueMembers,
   leagues,
   users,
   type Db,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 import { joinLeagueSchema } from "@anidraft/shared";
 
 import { createLeague, PUBLIC_PICK_TIMER_SECONDS } from "./createLeague";
@@ -29,29 +28,6 @@ import { createLeague, PUBLIC_PICK_TIMER_SECONDS } from "./createLeague";
  * this matters here.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
-
 describe("createLeague", () => {
   let db: Db;
   let commissionerId: string;
@@ -59,8 +35,7 @@ describe("createLeague", () => {
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "anidraft-createleague-"));
-    db = createDb(`file:${join(dir, "test.db")}`);
-    await applyMigrations(db);
+    db = await createMigratedDb(`file:${join(dir, "test.db")}`);
     commissionerId = crypto.randomUUID();
     await db
       .insert(users)

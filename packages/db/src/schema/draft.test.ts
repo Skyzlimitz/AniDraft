@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { createDb, type Db } from "../index";
+import { type Db } from "../index";
+import { createMigratedDb } from "../testing";
 import { anime } from "./anime";
 import { users } from "./auth";
 import { drafts, picks } from "./draft";
@@ -21,33 +20,10 @@ import { leagues } from "./leagues";
  * indexes are confirmed via `EXPLAIN QUERY PLAN`.
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-  "0004_unusual_vampiro.sql",
-];
-
 function firstRow<T>(rows: T[]): T {
   const row = rows[0];
   if (row === undefined) throw new Error("expected at least one row");
   return row;
-}
-
-async function applyMigrations(db: Db): Promise<void> {
-  // libsql honours foreign keys only when asked; enable so cascade/refs apply.
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
 }
 
 /** Seed the league + user + anime rows a draft/pick depends on. */
@@ -89,8 +65,7 @@ describe("draft schema round-trips", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   it("round-trips a draft, preserving the JSON turn order and defaults", async () => {

@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchSeasonPoolRows, type SeasonPoolAnime } from "@anidraft/anilist";
-import { anime, createDb, type Db } from "@anidraft/db";
+import { anime, type Db } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 /**
  * Integration test: the season pool fetcher (`@anidraft/anilist`) ↔ the `anime`
@@ -21,30 +20,6 @@ import { anime, createDb, type Db } from "@anidraft/db";
  * 2026 fetch is captured as a one-off verification artifact in the PR, not run
  * in CI.
  */
-
-const DB_MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-  "0004_unusual_vampiro.sql",
-  "0005_supreme_kate_bishop.sql",
-  "0006_first_nemesis.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of DB_MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 /** Build one AniList `Media` JSON node, the shape the client parses. */
 function mediaNode(id: number, overrides: Record<string, unknown> = {}) {
@@ -96,8 +71,7 @@ describe("season pool fetcher ↔ anime table boundary", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   afterEach(() => {
@@ -139,7 +113,10 @@ describe("season pool fetcher ↔ anime table boundary", () => {
   it("inserts cleanly even when AniList repeats a show across pages", async () => {
     // POPULARITY_DESC pagination can return the same id on two pages. Without
     // dedupe this insert would throw a PK violation on `anime.id`.
-    stubAniListPages([mediaNode(1), mediaNode(2)], [mediaNode(2), mediaNode(3)]);
+    stubAniListPages(
+      [mediaNode(1), mediaNode(2)],
+      [mediaNode(2), mediaNode(3)],
+    );
 
     const pool = await fetchSeasonPoolRows({ season: "SPRING", year: 2026 });
     expect(pool.map((r) => r.id)).toEqual([1, 2, 3]);

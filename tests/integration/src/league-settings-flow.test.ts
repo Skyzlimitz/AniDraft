@@ -1,15 +1,13 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 import {
-  createDb,
   leagueMembers,
   leagues,
   users,
   type Db,
   type LeagueStatus,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 import {
   MAX_PICK_TIMER_SECONDS,
   updateLeagueSettingsSchema,
@@ -25,29 +23,6 @@ import {
  * validate the body, enforce the state + member-count rules, then persist —
  * against the real migrated schema, including the `pick_timer_seconds` column.
  */
-
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 /** Which fields are editable from a status — mirrors `editableFieldsFor`. */
 function editableFieldsFor(status: LeagueStatus): string[] {
@@ -130,8 +105,7 @@ describe("edit-league-settings flow (shared schema + db)", () => {
   }
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
     commissionerId = crypto.randomUUID();
     outsiderId = crypto.randomUUID();
     await db.insert(users).values([

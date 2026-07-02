@@ -1,17 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   leagueMembers,
   leagues,
   users,
-  createDb,
   type Db,
   type LeagueStatus,
 } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 import { joinPublicLeague } from "./joinPublicLeague";
 
@@ -22,33 +21,12 @@ import { joinPublicLeague } from "./joinPublicLeague";
  * client reconnects afterwards — see `joinLeague.test.ts`).
  */
 
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
-
 let userSeq = 0;
 async function seedUser(db: Db): Promise<string> {
   const id = crypto.randomUUID();
-  await db.insert(users).values({ id, email: `user-${userSeq++}@anidraft.test` });
+  await db
+    .insert(users)
+    .values({ id, email: `user-${userSeq++}@anidraft.test` });
   return id;
 }
 
@@ -106,8 +84,7 @@ describe("joinPublicLeague", () => {
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "anidraft-joinpublic-"));
-    db = createDb(`file:${join(dir, "test.db")}`);
-    await applyMigrations(db);
+    db = await createMigratedDb(`file:${join(dir, "test.db")}`);
     userSeq = 0;
   });
 

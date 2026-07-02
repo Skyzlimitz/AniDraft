@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { createDb, leagueMembers, leagues, users, type Db } from "@anidraft/db";
+import { leagueMembers, leagues, users, type Db } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 import { getLeagueSettings } from "./getLeagueSettings";
 
@@ -13,29 +13,6 @@ import { getLeagueSettings } from "./getLeagueSettings";
  * Runs against a fresh migrated libsql database; a temp file (not `:memory:`)
  * keeps it consistent with the other league tests.
  */
-
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  // 0003 adds the app-specific `user` columns; required because drizzle now
-  // emits `created_at` (its $defaultFn) on every user INSERT.
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 describe("getLeagueSettings", () => {
   let db: Db;
@@ -65,8 +42,7 @@ describe("getLeagueSettings", () => {
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), "anidraft-getsettings-"));
-    db = createDb(`file:${join(dir, "test.db")}`);
-    await applyMigrations(db);
+    db = await createMigratedDb(`file:${join(dir, "test.db")}`);
     commissionerId = crypto.randomUUID();
     playerId = crypto.randomUUID();
     outsiderId = crypto.randomUUID();

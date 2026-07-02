@@ -1,7 +1,6 @@
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { anime, createDb, episodes, type Db } from "@anidraft/db";
+import { anime, episodes, type Db } from "@anidraft/db";
+import { createMigratedDb } from "@anidraft/db/testing";
 
 import { getCachedAnime, STALE_AFTER_MS } from "./getCachedAnime";
 
@@ -13,27 +12,6 @@ import { getCachedAnime, STALE_AFTER_MS } from "./getCachedAnime";
  * Migrations 0000–0003 are the set that lands `anime` + `episodes`; 0003 also
  * ALTERs `user`, which 0000 creates, so the chain must start at 0000.
  */
-
-const MIGRATIONS = [
-  "0000_true_nighthawk.sql",
-  "0001_tough_talkback.sql",
-  "0002_flashy_inhumans.sql",
-  "0003_tense_masque.sql",
-];
-
-async function applyMigrations(db: Db): Promise<void> {
-  await db.run("PRAGMA foreign_keys = ON");
-  for (const file of MIGRATIONS) {
-    const path = fileURLToPath(
-      new URL(`../../../../packages/db/drizzle/${file}`, import.meta.url),
-    );
-    const sql = readFileSync(path, "utf8");
-    for (const statement of sql.split("--> statement-breakpoint")) {
-      const trimmed = statement.trim();
-      if (trimmed) await db.run(trimmed);
-    }
-  }
-}
 
 const ANIME_ID = 12345;
 const NOW = new Date("2026-05-01T00:00:00.000Z");
@@ -63,8 +41,7 @@ describe("getCachedAnime", () => {
   let db: Db;
 
   beforeEach(async () => {
-    db = createDb(":memory:");
-    await applyMigrations(db);
+    db = await createMigratedDb();
   });
 
   afterEach(() => {
